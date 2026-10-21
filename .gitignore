@@ -2,3 +2,6 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# Link mágico do admin (contém chaves privadas)
+.admin-link.txt

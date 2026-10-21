@@ -14,6 +14,9 @@ Os participantes se conectam peer-to-peer via WebRTC; quando a sala fecha, tudo 
 - Animação de virar as cartas, valor mais votado, gráfico de distribuição, % de concordância e média
 - Controles do Host: **Revelar Cartas** e **Votar novamente**
 - Layout responsivo (desktop e celular)
+- **Contador de salas abertas** no Lobby (sem servidor: ver abaixo)
+- Salas se fecham sozinhas: ao fechar a aba do Host ou após **60 min sem atividade**
+- **Painel do admin** por link mágico: ver todas as salas abertas e encerrá-las
 
 ## Como funciona
 
@@ -29,6 +32,47 @@ dados da votação trafegam direto entre eles. O Host é a fonte da verdade: rec
 todos o estado atualizado.
 
 > ⚠️ Se o Host fechar ou recarregar a aba, a sala é encerrada para todos.
+
+### Contador de salas (sem servidor)
+
+O primeiro Host a abrir uma sala também ocupa um ID fixo no PeerJS e vira o **contador**. Os outros
+Hosts informam a ele quantas pessoas têm; o Lobby lê o total dele. Se a aba do contador fechar, os
+Hosts restantes disputam o ID e um deles assume (o servidor do PeerJS garante que só um vence).
+Sem nenhuma sala aberta, o ID não existe e o Lobby mostra "Nenhuma sala aberta agora".
+
+### Fechamento das salas
+
+Nada fica ocupando espaço: a sala só existe na memória da aba do Host.
+
+- Ao fechar a aba (`pagehide`), o Host destrói as conexões na hora: o ID é liberado e os convidados voltam ao Lobby.
+- Sem nenhuma atividade (entrada, voto, revelação...) por 60 minutos, a sala se encerra sozinha.
+- O contador descarta salas que pararem de dar sinal de vida por 2,5 minutos.
+- O admin pode encerrar qualquer sala pelo painel.
+
+## Painel do admin (link mágico)
+
+Um link secreto só para o dono do site, para ver todas as salas abertas (código, participantes,
+rodada, tempo aberta, última atividade) e encerrar uma ou todas.
+
+Como o site é estático, não dá para esconder uma senha no código. Por isso o link usa **criptografia
+de chave pública** (Web Crypto, curva P-256):
+
+- As chaves **públicas** ficam no código (`src/lib/adminKeys.js`); as **privadas** ficam só no link,
+  depois do `#` (o fragmento nunca é enviado ao GitHub nem a nenhum servidor).
+- Cada Host **criptografa** os dados da sala para o admin (ECDH + AES-GCM). O contador só repassa e
+  não consegue ler.
+- Comandos de encerrar vão **assinados** (ECDSA); antes de obedecer, cada Host confere a assinatura,
+  se o comando é para a sua sala e se tem menos de 2 minutos.
+
+**Gerar (ou trocar) o link:**
+
+```bash
+node scripts/gerar-chave-admin.mjs > .admin-link.txt
+```
+
+O script atualiza `src/lib/adminKeys.js` e grava o link mágico (`.../planning-poker/#admin=...`) em
+`.admin-link.txt`, que está no `.gitignore`. Faça commit e push do `adminKeys.js` e guarde o link nos
+favoritos. Se o link vazar, rode o script de novo: o antigo para de funcionar quando o deploy terminar.
 
 ## Stack
 
@@ -56,13 +100,21 @@ e entre na sala com outro nome.
 
 ```
 src/
-├── App.jsx                     # alterna entre Lobby e Room
+├── App.jsx                     # Lobby/Room, ou AdminPanel se a URL tiver #admin=
 ├── components/
-│   ├── Lobby.jsx               # nome, criar sala, entrar em sala
-│   └── Room.jsx                # mesa, cartas, resultados, controles do Host
-├── hooks/usePlanningPoker.js   # lógica PeerJS (Host e convidado)
-├── lib/poker.js                # baralho, códigos de sala, estatísticas
+│   ├── Lobby.jsx               # nome, criar sala, entrar em sala, contador de salas
+│   ├── Room.jsx                # mesa, cartas, resultados, controles do Host
+│   └── AdminPanel.jsx          # painel do link mágico
+├── hooks/
+│   ├── usePlanningPoker.js     # lógica PeerJS (Host e convidado), fechamento automático
+│   └── useRoomCounter.js       # total de salas para o Lobby
+├── lib/
+│   ├── poker.js                # baralho, códigos de sala, estatísticas
+│   ├── registry.js             # contador de salas P2P (eleição, repasse para o admin)
+│   ├── adminCrypto.js          # assinatura e criptografia do admin
+│   └── adminKeys.js            # chaves públicas do admin (gerado pelo script)
 └── index.css                   # Tailwind + animação 3D das cartas
+scripts/gerar-chave-admin.mjs   # gera as chaves e o link mágico
 ```
 
 ## Deploy
@@ -77,4 +129,5 @@ Todo push na `main` publica automaticamente no GitHub Pages via GitHub Actions
 
 - Nenhum dado é gravado em servidor, banco, cookie ou `localStorage`.
 - O servidor de sinalização do PeerJS vê apenas IDs de conexão, nunca nomes ou votos.
+- O contador de salas recebe em claro só números (salas e pessoas); os detalhes vão criptografados para o admin.
 - Redes corporativas muito restritas podem bloquear WebRTC (seria necessário um servidor TURN).

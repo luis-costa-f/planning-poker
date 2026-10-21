@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer from 'peerjs'
 import { PEER_PREFIX, generateRoomCode, normalizeRoomCode } from '../lib/poker'
+import { startRoomReporter } from '../lib/registry'
 
 /*
  * Arquitetura P2P (estrela):
@@ -22,6 +23,9 @@ import { PEER_PREFIX, generateRoomCode, normalizeRoomCode } from '../lib/poker'
  */
 
 const CONNECT_TIMEOUT_MS = 12000
+// Sala sem nenhuma atividade (entrada, voto, revelação...) por esse tempo é encerrada sozinha
+const IDLE_LIMIT_MS = 60 * 60_000
+const IDLE_CHECK_MS = 60_000
 
 const initialGame = { participants: [], revealed: false, round: 1 }
 
@@ -41,11 +45,18 @@ export function usePlanningPoker() {
   // Convidado: conexão com o host
   const hostConnRef = useRef(null)
   const leavingRef = useRef(false)
+  // Host: contador de salas/painel admin e encerramento por inatividade
+  const reporterRef = useRef(null)
+  const idleTimerRef = useRef(null)
+  const roomInfoRef = useRef({ code: '', createdAt: 0, lastActivity: 0 })
 
   // ---------- utilitários ----------
 
   const cleanup = useCallback(() => {
     leavingRef.current = true
+    reporterRef.current?.stop()
+    reporterRef.current = null
+    clearInterval(idleTimerRef.current)
     connectionsRef.current.forEach((c) => c.close())
     connectionsRef.current.clear()
     hostConnRef.current?.close()
@@ -69,8 +80,15 @@ export function usePlanningPoker() {
     [cleanup],
   )
 
-  // Fecha tudo se o componente for desmontado (ex.: fechar a aba)
-  useEffect(() => cleanup, [cleanup])
+  // Fecha tudo se o componente for desmontado ou a aba for fechada. O pagehide libera
+  // o ID no PeerJS e avisa os outros na hora, sem esperar timeouts de rede.
+  useEffect(() => {
+    window.addEventListener('pagehide', cleanup)
+    return () => {
+      window.removeEventListener('pagehide', cleanup)
+      cleanup()
+    }
+  }, [cleanup])
 
   // ---------- lógica do HOST ----------
 
@@ -95,6 +113,23 @@ export function usePlanningPoker() {
     connectionsRef.current.forEach((conn) => {
       if (conn.open) conn.send({ type: 'state', state: publicState })
     })
+    roomInfoRef.current.lastActivity = Date.now()
+    reporterRef.current?.update()
+  }, [])
+
+  // Dados da sala enviados (criptografados) ao painel de admin
+  const getRoomInfo = useCallback(() => {
+    const state = hostStateRef.current
+    const { code, createdAt, lastActivity } = roomInfoRef.current
+    return {
+      code,
+      createdAt,
+      lastActivity,
+      round: state?.round ?? 0,
+      revealed: state?.revealed ?? false,
+      names: state ? [...state.participants.values()].map((p) => p.name) : [],
+      voted: state ? [...state.participants.values()].filter((p) => p.vote != null).length : 0,
+    }
   }, [])
 
   const handleGuestMessage = useCallback(
@@ -135,11 +170,26 @@ export function usePlanningPoker() {
             round: 1,
             participants: new Map([[id, { name, vote: null, isHost: true }]]),
           }
+          const now = Date.now()
+          roomInfoRef.current = { code, createdAt: now, lastActivity: now }
           setRoomCode(code)
           setMyId(id)
           setIsHost(true)
           setMyVote(null)
           setStatus('connected')
+
+          reporterRef.current = startRoomReporter({
+            getInfo: getRoomInfo,
+            onAdminCommand: (cmd) => {
+              if (cmd.action === 'close') resetToLobby('A sala foi encerrada pelo administrador do site.')
+            },
+          })
+          idleTimerRef.current = setInterval(() => {
+            if (Date.now() - roomInfoRef.current.lastActivity > IDLE_LIMIT_MS) {
+              resetToLobby('A sala foi encerrada automaticamente após 60 minutos sem atividade.')
+            }
+          }, IDLE_CHECK_MS)
+
           broadcast()
         })
 
@@ -173,7 +223,7 @@ export function usePlanningPoker() {
 
       tryOpen()
     },
-    [broadcast, cleanup, handleGuestMessage, resetToLobby],
+    [broadcast, cleanup, getRoomInfo, handleGuestMessage, resetToLobby],
   )
 
   // ---------- lógica do CONVIDADO ----------

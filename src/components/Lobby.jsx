@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useRoomCounter } from '../hooks/useRoomCounter'
 
 // Permite compartilhar um link do tipo https://.../planning-poker/?sala=ABC123
 function readRoomFromUrl() {
@@ -9,6 +10,7 @@ export default function Lobby({ connecting, error, onCreate, onJoin }) {
   const [name, setName] = useState('')
   const [code, setCode] = useState(readRoomFromUrl)
   const [nameError, setNameError] = useState('')
+  const count = useRoomCounter()
 
   const validName = () => {
     const trimmed = name.trim()
@@ -39,6 +41,7 @@ export default function Lobby({ connecting, error, onCreate, onJoin }) {
         <p className="mt-2 text-sm text-slate-400">
           Peer-to-peer, sem cadastro e sem banco de dados. Tudo some quando a sala fecha.
         </p>
+        <RoomCount count={count} />
       </header>
 
       <div className="space-y-6 rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-2xl backdrop-blur">
@@ -106,5 +109,19 @@ export default function Lobby({ connecting, error, onCreate, onJoin }) {
         )}
       </div>
     </main>
+  )
+}
+
+function RoomCount({ count }) {
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+  return (
+    <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+      <span className={`h-2 w-2 rounded-full ${count?.rooms ? 'animate-pulse bg-emerald-400' : 'bg-slate-500'}`} />
+      {count == null
+        ? 'Contando salas...'
+        : count.rooms === 0
+          ? 'Nenhuma sala aberta agora'
+          : `${plural(count.rooms, 'sala aberta', 'salas abertas')} · ${plural(count.participants, 'pessoa', 'pessoas')}`}
+    </p>
   )
 }
