@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { watchRegistry } from '../lib/registry'
 import { decryptAsAdmin, loadAdminKeys, signAdminCommand } from '../lib/adminCrypto'
+import AdminStats from './AdminStats'
 
 // Painel do dono do site, aberto pelo link mágico (#admin=...)
 export default function AdminPanel({ secret }) {
@@ -9,6 +10,7 @@ export default function AdminPanel({ secret }) {
   const [rooms, setRooms] = useState(null) // null = conectando
   const [closing, setClosing] = useState({}) // code -> true
   const [now, setNow] = useState(Date.now())
+  const [tab, setTab] = useState('rooms') // rooms | stats
   const watcherRef = useRef(null)
 
   useEffect(() => {
@@ -77,12 +79,32 @@ export default function AdminPanel({ secret }) {
       <main className="mx-auto max-w-4xl px-4 py-8">
         {keyError ? (
           <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-300">{keyError}</p>
-        ) : !keys || rooms == null ? (
-          <p className="flex items-center gap-2 text-slate-300">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
-            {keys ? 'Procurando salas...' : 'Validando link...'}
-          </p>
+        ) : !keys ? (
+          <Loading text="Validando link..." />
         ) : (
+          <>
+            <nav className="mb-6 flex gap-1 rounded-xl border border-white/10 bg-slate-900/60 p-1 sm:w-fit">
+              {[
+                ['rooms', 'Salas abertas'],
+                ['stats', 'Estatísticas'],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  className={`flex-1 whitespace-nowrap rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+                    tab === id ? 'bg-blue-400 text-slate-950' : 'text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            {tab === 'stats' ? (
+              <AdminStats />
+            ) : rooms == null ? (
+              <Loading text="Procurando salas..." />
+            ) : (
           <>
             <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
               <div className="flex gap-8">
@@ -150,9 +172,20 @@ export default function AdminPanel({ secret }) {
               Os dados das salas chegam criptografados e só este link consegue lê-los. Não compartilhe esta URL.
             </p>
           </>
+            )}
+          </>
         )}
       </main>
     </div>
+  )
+}
+
+function Loading({ text }) {
+  return (
+    <p className="flex items-center gap-2 text-slate-300">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
+      {text}
+    </p>
   )
 }
 

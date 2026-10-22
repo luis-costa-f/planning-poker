@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer from 'peerjs'
 import { PEER_PREFIX, generateRoomCode, normalizeRoomCode } from '../lib/poker'
 import { startRoomReporter } from '../lib/registry'
+import { newRoomId, recordRound } from '../lib/stats'
 
 /*
  * Arquitetura P2P (estrela):
@@ -48,7 +49,8 @@ export function usePlanningPoker() {
   // Host: contador de salas/painel admin e encerramento por inatividade
   const reporterRef = useRef(null)
   const idleTimerRef = useRef(null)
-  const roomInfoRef = useRef({ code: '', createdAt: 0, lastActivity: 0 })
+  // roomId: UUID aleatório usado só nas estatísticas (nunca o código da sala)
+  const roomInfoRef = useRef({ code: '', roomId: '', createdAt: 0, lastActivity: 0 })
 
   // ---------- utilitários ----------
 
@@ -171,7 +173,7 @@ export function usePlanningPoker() {
             participants: new Map([[id, { name, vote: null, isHost: true }]]),
           }
           const now = Date.now()
-          roomInfoRef.current = { code, createdAt: now, lastActivity: now }
+          roomInfoRef.current = { code, roomId: newRoomId(), createdAt: now, lastActivity: now }
           setRoomCode(code)
           setMyId(id)
           setIsHost(true)
@@ -305,9 +307,11 @@ export function usePlanningPoker() {
   )
 
   const reveal = useCallback(() => {
-    if (!isHost || !hostStateRef.current) return
-    hostStateRef.current.revealed = true
+    const state = hostStateRef.current
+    if (!isHost || !state || state.revealed) return
+    state.revealed = true
     broadcast()
+    recordRound({ roomId: roomInfoRef.current.roomId, round: state.round, participants: [...state.participants.values()] })
   }, [broadcast, isHost])
 
   const newRound = useCallback(() => {

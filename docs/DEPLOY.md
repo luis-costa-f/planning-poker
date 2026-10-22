@@ -71,6 +71,12 @@ Pronto, não precisa escolher branch.
 
 A partir daqui, **todo `git push` na `main` publica automaticamente** a nova versão.
 
+## Passo 6 (opcional) — Estatísticas
+
+Para o painel do admin mostrar estatísticas das rodadas, crie um projeto no Supabase e cadastre as
+variáveis `SUPABASE_URL` e `SUPABASE_KEY` em **Settings → Secrets and variables → Actions → Variables**.
+Passo a passo: [SUPABASE.md](SUPABASE.md).
+
 ## O que o workflow faz
 
 ```yaml
@@ -109,5 +115,7 @@ escolha **Source: Deploy from a branch**, branch `gh-pages`, pasta `/ (root)`.
 | Página em branco, 404 em `/assets/...` | `base` errado no `vite.config.js`. Deve ser `'/<nome-do-repo>/'`. |
 | Action falha em `npm ci` | Falta o `package-lock.json` no repositório. Rode `npm install` localmente e faça commit dele. |
 | Action falha em "deploy" com erro de permissão/ambiente | **Settings → Pages → Source** não está em **GitHub Actions**. |
+| Aba Estatísticas diz "Estatísticas desligadas" | Faltam as variáveis `SUPABASE_URL` / `SUPABASE_KEY` (aba **Variables**, não Secrets) ou o deploy não rodou depois de criá-las. |
+| Estatísticas com erro 401/404 | Chave errada (use a publishable/anon) ou o `supabase/schema.sql` não foi executado. Projeto pausado também falha: reative no dashboard. |
 | "Sala não encontrada" | Código errado, ou o Host fechou/recarregou a aba. |
 | Fica em "Conectando..." em algumas redes corporativas | Firewalls que bloqueiam WebRTC. O PeerJS usa servidores STUN públicos; redes muito restritas precisariam de um servidor TURN (não incluso). |

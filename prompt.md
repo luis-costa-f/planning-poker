@@ -3,7 +3,8 @@ Atue como um Desenvolvedor Front-end Sênior especialista em React e WebRTC. Pre
 
 # Requisitos Arquiteturais
 - **Hospedagem:** GitHub Pages (100% estático, sem backend Node.js, Python etc.).
-- **Sem Banco de Dados:** nada de sessão, histórico ou usuários salvo em banco. Tudo efêmero, em memória. **Não usar `localStorage`, cookies nem `sessionStorage`** (nem para lembrar o nome do usuário).
+- **Sem Banco de Dados para o jogo:** nada de sessão, histórico, nomes ou usuários salvo em banco. O jogo é efêmero, em memória. **Não usar `localStorage`, cookies nem `sessionStorage`** (nem para lembrar o nome do usuário).
+- **Única exceção:** estatísticas **anônimas** das rodadas no Supabase (opcional, ver seção própria), sem nomes e sem código de sala.
 - **Conexão em Tempo Real:** pessoas diferentes entram na mesma "sala" para votar.
 - **Solução técnica:** WebRTC com a biblioteca `peerjs`, usando o servidor de sinalização público e gratuito do PeerJS (`new Peer()` sem configuração extra). Topologia em **estrela**: quem cria a sala é o **Host** e é a única fonte da verdade do estado do jogo; os convidados se conectam a ele.
 
@@ -11,6 +12,7 @@ Atue como um Desenvolvedor Front-end Sênior especialista em React e WebRTC. Pre
 - Vite 6 + React 19 (JavaScript/JSX, sem TypeScript).
 - Tailwind CSS 4 via plugin `@tailwindcss/vite` (sem `tailwind.config.js`; o CSS começa com `@import "tailwindcss";`).
 - `peerjs` ^1.5.
+- Supabase só via `fetch` na API REST (sem instalar `@supabase/supabase-js`).
 - Comando de criação: `npm create vite@latest planning-poker -- --template react` e depois `npm install peerjs tailwindcss @tailwindcss/vite`.
 - Nome do repositório no GitHub: `planning-poker` (usuário `luis-costa-f`). URL final: `https://luis-costa-f.github.io/planning-poker/`.
 
@@ -25,16 +27,21 @@ src/
 ├── components/
 │   ├── Lobby.jsx               # inclui o contador de salas abertas
 │   ├── Room.jsx                # mesa, cartas, resultados, controles do Host
-│   └── AdminPanel.jsx          # painel do link mágico
+│   ├── AdminPanel.jsx          # painel do link mágico (abas Salas abertas / Estatísticas)
+│   └── AdminStats.jsx          # aba de estatísticas (lê o Supabase)
 ├── hooks/
 │   ├── usePlanningPoker.js     # toda a lógica PeerJS (Host e convidado) + fechamento automático
 │   └── useRoomCounter.js       # total de salas para o Lobby
 └── lib/
     ├── poker.js                # baralho, geração de código, estatísticas (funções puras)
     ├── registry.js             # contador de salas P2P, eleição, repasse para o admin
+    ├── stats.js                # grava rodadas e lê estatísticas no Supabase
     ├── adminCrypto.js          # assinatura/criptografia do admin
     └── adminKeys.js            # chaves públicas do admin (gerado pelo script)
 scripts/gerar-chave-admin.mjs   # gera chaves e link mágico
+supabase/schema.sql             # tabela rounds, permissões (RLS) e função get_stats()
+docs/SUPABASE.md                # tutorial de configuração do Supabase
+.env.example                    # VITE_SUPABASE_URL e VITE_SUPABASE_KEY
 index.html                      # lang="pt-BR", favicon 🃏 em SVG inline, título "Planning Poker P2P"
 vite.config.js                  # base: '/planning-poker/'
 .gitignore                      # node_modules, dist, *.local, .DS_Store, .admin-link.txt
@@ -86,6 +93,23 @@ Link secreto só para o dono do site: `https://luis-costa-f.github.io/planning-p
   - Rodapé: "Os dados das salas chegam criptografados e só este link consegue lê-los. Não compartilhe esta URL."
   - Tempos atualizados a cada 15 s.
 
+# Estatísticas das rodadas (Supabase, opcional)
+O GitHub Pages é estático, então não dá para gravar `.txt` nem banco no próprio site (e gravar no repositório exigiria expor um token). Usar o **Supabase** (Postgres grátis) chamado direto do navegador com a chave **pública** (publishable `sb_publishable_...` ou `anon` antiga; nunca a `service_role`).
+- **Configuração:** variáveis de build `VITE_SUPABASE_URL` e `VITE_SUPABASE_KEY` (local: `.env.local`; GitHub Actions: repository **Variables** `SUPABASE_URL` e `SUPABASE_KEY`, passadas no passo `npm run build` do `deploy.yml`). Sem elas, `statsEnabled = false` e nada é enviado.
+- **`supabase/schema.sql`** (idempotente, colado no SQL Editor):
+  - Tabela `rounds`: `id` identity, `room_id uuid`, `round`, `participants` (1..100), `votes text[]` (só cartas do baralho), `no_vote`, `created_at default now()`. Checks: pelo menos 1 voto, `cardinality(votes) + no_vote = participants`; `unique (room_id, round)`.
+  - RLS ligado; `revoke all` de `anon`/`authenticated`; `anon` só tem `insert` nas colunas `room_id, round, participants, votes, no_vote` (não consegue forjar `created_at`) e uma policy de insert. Ninguém lê a tabela com a chave pública.
+  - Função `get_stats()` (`security definer`, `search_path = ''`, executável por `anon`) que devolve JSON `{ overall: { rooms, rounds, seats, no_vote, average, question, coffee, distribution }, rooms: [{ first_at, last_at, rounds, seats, no_vote, question, coffee, average, distribution }] }` com as 100 salas mais recentes. `distribution` = pares `[carta, quantidade]` (desc). Média só com cartas numéricas (`½` = 0.5), arredondada a 1 casa. Não devolve `room_id`.
+- **`lib/stats.js`** (`fetch` na REST API, header `apikey`; `Authorization: Bearer` só se a chave for JWT `eyJ...`):
+  - `newRoomId()`: `crypto.randomUUID()` com fallback via `getRandomValues` (fora de https).
+  - `recordRound({ roomId, round, participants })`: filtra votos que estão no `DECK`, ignora rodada sem votos, `POST /rest/v1/rounds` com `Prefer: return=minimal` e `keepalive`; erros são ignorados (o jogo nunca depende disso).
+  - `fetchStats()`: `POST /rest/v1/rpc/get_stats`.
+- **Privacidade:** nunca gravar nomes nem o código da sala (como `get_stats` é público, o código permitiria entrar em salas abertas). Cada sala ganha um `roomId` UUID em `roomInfoRef` ao ser criada.
+- **Gravação:** no `reveal()` do Host (que agora ignora se já estiver revelado), depois do `broadcast()`, uma linha por rodada revelada com todos os participantes (Host incluso).
+- **Abstenção** = não votou + `?` + `☕` (gravados separados: `no_vote`, e contagem de `?`/`☕` em `votes`). Taxa = abstenções ÷ `seats` (soma das pessoas presentes em cada rodada revelada).
+- **Painel do admin:** abas "Salas abertas" / "Estatísticas" (`AdminStats.jsx`), visíveis depois de validar o link. A aba mostra: números grandes "Salas", "Rodadas reveladas", "Média geral", "Abstenções (N%)" e botão "↻ Atualizar"; card com "Mais votada" / "Menos votada" (só numéricas; empates juntos; sem "menos" se só um valor foi usado), detalhe "x não votaram · y “?” · z “☕”" e gráfico de barras com todas as cartas do baralho; tabela "Por sala (100 mais recentes)" com Aberta em, Rodadas, Média, Mais votada, Menos votada, Abstenções (com o detalhe no `title`). Estados: "Carregando estatísticas...", "Nenhuma rodada revelada ainda.", erro, e "Estatísticas desligadas" se faltarem as variáveis.
+- O Lobby passa a dizer "Peer-to-peer e sem cadastro. Tudo some quando a sala fecha; só ficam estatísticas anônimas das cartas."
+
 # Regras do jogo (`lib/poker.js`)
 - Baralho: `0, ½, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, ?, ☕`.
 - Clicar de novo na carta escolhida desmarca o voto.
@@ -100,7 +124,7 @@ Link secreto só para o dono do site: `https://luis-costa-f.github.io/planning-p
 # Interface (UI/UX)
 Referência visual: `image.png` (estilo do planningpokeronline.com). Tema escuro azul-marinho, destaque em azul claro.
 - **Cores:** fundo `#030617` (também no `<body>`), mesa `bg-slate-800/80`, destaque `blue-400` (hover `blue-300`), textos brancos/`slate`.
-- **Lobby:** centralizado (máx. `max-w-md`), emoji 🃏, título "Planning Poker", subtítulo "Peer-to-peer, sem cadastro e sem banco de dados. Tudo some quando a sala fecha.". Card com: campo "Seu nome" (obrigatório, máx. 30), botão "Criar Nova Sala", separador "ou", campo "Código da sala" + botão "Entrar". Se a URL tiver `?sala=CÓDIGO`, o campo de código já vem preenchido. Spinner "Conectando..." e caixa de erro em vermelho.
+- **Lobby:** centralizado (máx. `max-w-md`), emoji 🃏, título "Planning Poker", subtítulo "Peer-to-peer e sem cadastro. Tudo some quando a sala fecha; só ficam estatísticas anônimas das cartas.". Card com: campo "Seu nome" (obrigatório, máx. 30), botão "Criar Nova Sala", separador "ou", campo "Código da sala" + botão "Entrar". Se a URL tiver `?sala=CÓDIGO`, o campo de código já vem preenchido. Spinner "Conectando..." e caixa de erro em vermelho.
 - **Cabeçalho da sala:** "ID DA SALA" + código grande em fonte mono com espaçamento largo, selo "Host" para o Host; botões com contorno azul "Copiar código", "Convidar" (copia o link `origem + caminho + ?sala=CÓDIGO`; mostra "Copiado!" por 1,5 s) e "Sair" (vermelho; para o Host pede confirmação porque encerra a sala para todos).
 - **Mesa:** participantes divididos em duas fileiras, metade **acima** e metade **abaixo** de uma mesa central retangular arredondada (`max-w-sm`, `rounded-3xl`).
   - Carta de cada participante: pequena (40×68 px), com o nome em negrito embaixo (👑 antes do nome do Host; o próprio usuário em azul). Antes da revelação, mostra embaixo "Votando..." (cinza, pulsando) ou "Votou!" (azul).
@@ -125,8 +149,9 @@ Referência visual: `image.png` (estilo do planningpokeronline.com). Tema escuro
 1. Comando para iniciar o projeto.
 2. Código completo de todos os arquivos listados na estrutura.
 3. **`README.md`** voltado ao repositório: descrição, link do site, funcionalidades, como funciona (diagrama da estrela), stack, como rodar localmente (tabela de scripts), estrutura, resumo do deploy apontando para `docs/DEPLOY.md`, seção de privacidade e o aviso de que a sala acaba se o Host fechar a aba.
-4. **`docs/DEPLOY.md`**: tutorial detalhado para iniciantes: explicação do `base` (com tabela de exemplos, incluindo o caso `usuario.github.io` → `'/'`), criação do repositório público, comandos git, ativação do Pages com Actions, acompanhamento na aba Actions, explicação do workflow, alternativa com o pacote `gh-pages` (`"deploy": "vite build && gh-pages -d dist"`) e tabela de problemas comuns (página em branco/404, falha no `npm ci`, falha no deploy por permissão, sala não encontrada, redes corporativas bloqueando WebRTC/TURN).
-5. Sugestão de mensagem de commit (Conventional Commits, em português).
+4. **`docs/SUPABASE.md`**: tutorial para iniciantes: criar o projeto (região São Paulo), rodar `supabase/schema.sql` no SQL Editor, pegar Project URL e publishable/anon key (alerta para nunca usar a `service_role`), cadastrar as Variables no GitHub e rodar o deploy de novo, `.env.local`, como testar (Table Editor, aba Estatísticas, `curl` no `rpc/get_stats`), definições de média/abstenção, consultas úteis e avisos (projeto pausado após 1 semana parado; dados falsos possíveis com chave pública).
+5. **`docs/DEPLOY.md`**: tutorial detalhado para iniciantes: explicação do `base` (com tabela de exemplos, incluindo o caso `usuario.github.io` → `'/'`), criação do repositório público, comandos git, ativação do Pages com Actions, acompanhamento na aba Actions, explicação do workflow, alternativa com o pacote `gh-pages` (`"deploy": "vite build && gh-pages -d dist"`) e tabela de problemas comuns (página em branco/404, falha no `npm ci`, falha no deploy por permissão, sala não encontrada, redes corporativas bloqueando WebRTC/TURN).
+6. Sugestão de mensagem de commit (Conventional Commits, em português).
 
 # Validação
 Fazer `npm run build` e testar de verdade com vários navegadores (ex.: Playwright com o Chrome instalado, em modo headless, contra `npm run preview`): 1 Host + 4 convidados entram pelo link `?sala=`, votam, conferem que o voto do Host não aparece para os convidados antes da revelação, o Host revela, tira screenshot comparando com `image.png` e inicia nova rodada.
@@ -138,3 +163,4 @@ Testar também:
 - "Encerrar" no painel derruba o Host e os convidados.
 - O link `#admin=abc.def` é rejeitado.
 - Um comando assinado por outra chave, alterado, destinado a outra sala ou com mais de 2 min é recusado.
+- O `supabase/schema.sql` roda duas vezes seguidas sem erro (ex.: PGlite com papéis `anon`/`authenticated` criados à mão) e, como `anon`: insere rodadas válidas; é recusado ao ler a tabela, com carta fora do baralho, soma errada, rodada sem votos, rodada repetida e `created_at` forjado; `get_stats()` devolve médias e contagens que batem com a conta manual.

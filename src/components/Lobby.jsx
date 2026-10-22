@@ -39,7 +39,7 @@ export default function Lobby({ connecting, error, onCreate, onJoin }) {
         <div className="mb-3 text-5xl">🃏</div>
         <h1 className="text-3xl font-bold tracking-tight">Planning Poker</h1>
         <p className="mt-2 text-sm text-slate-400">
-          Peer-to-peer, sem cadastro e sem banco de dados. Tudo some quando a sala fecha.
+          Peer-to-peer e sem cadastro. Tudo some quando a sala fecha; só ficam estatísticas anônimas das cartas.
         </p>
         <RoomCount count={count} />
       </header>

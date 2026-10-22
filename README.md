@@ -1,6 +1,6 @@
 # 🃏 Planning Poker P2P
 
-Planning Poker em tempo real, direto no navegador. **Sem cadastro, sem backend, sem banco de dados.**
+Planning Poker em tempo real, direto no navegador. **Sem cadastro e sem backend.**
 Os participantes se conectam peer-to-peer via WebRTC; quando a sala fecha, tudo some.
 
 **▶️ Acesse:** https://&lt;seu-usuario&gt;.github.io/planning-poker/
@@ -17,6 +17,7 @@ Os participantes se conectam peer-to-peer via WebRTC; quando a sala fecha, tudo 
 - **Contador de salas abertas** no Lobby (sem servidor: ver abaixo)
 - Salas se fecham sozinhas: ao fechar a aba do Host ou após **60 min sem atividade**
 - **Painel do admin** por link mágico: ver todas as salas abertas e encerrá-las
+- **Estatísticas anônimas** (opcional, via Supabase): média, cartas mais/menos votadas e abstenções, por sala e no geral
 
 ## Como funciona
 
@@ -74,9 +75,21 @@ O script atualiza `src/lib/adminKeys.js` e grava o link mágico (`.../planning-p
 `.admin-link.txt`, que está no `.gitignore`. Faça commit e push do `adminKeys.js` e guarde o link nos
 favoritos. Se o link vazar, rode o script de novo: o antigo para de funcionar quando o deploy terminar.
 
+## Estatísticas (Supabase, opcional)
+
+Ao revelar as cartas, o Host grava uma linha no [Supabase](https://supabase.com) com os valores das
+cartas e quantas pessoas não votaram. Sem nomes e sem o código da sala. A chave pública só consegue
+inserir; a leitura é pela função `get_stats()`, que devolve só números agregados. O painel do admin
+ganha a aba **Estatísticas**: média, carta mais/menos votada e abstenções (não votou, `?` ou `☕`),
+por sala e no geral.
+
+Sem as variáveis `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` no build, nada é gravado.
+
+📖 Configuração passo a passo: [docs/SUPABASE.md](docs/SUPABASE.md) (SQL pronto em `supabase/schema.sql`).
+
 ## Stack
 
-[React 19](https://react.dev) · [Vite 6](https://vite.dev) · [Tailwind CSS 4](https://tailwindcss.com) · [PeerJS](https://peerjs.com) · GitHub Pages
+[React 19](https://react.dev) · [Vite 6](https://vite.dev) · [Tailwind CSS 4](https://tailwindcss.com) · [PeerJS](https://peerjs.com) · GitHub Pages · [Supabase](https://supabase.com) (opcional)
 
 ## Rodando localmente
 
@@ -104,17 +117,20 @@ src/
 ├── components/
 │   ├── Lobby.jsx               # nome, criar sala, entrar em sala, contador de salas
 │   ├── Room.jsx                # mesa, cartas, resultados, controles do Host
-│   └── AdminPanel.jsx          # painel do link mágico
+│   ├── AdminPanel.jsx          # painel do link mágico (abas Salas abertas / Estatísticas)
+│   └── AdminStats.jsx          # aba de estatísticas (lê o Supabase)
 ├── hooks/
 │   ├── usePlanningPoker.js     # lógica PeerJS (Host e convidado), fechamento automático
 │   └── useRoomCounter.js       # total de salas para o Lobby
 ├── lib/
-│   ├── poker.js                # baralho, códigos de sala, estatísticas
+│   ├── poker.js                # baralho, códigos de sala, estatísticas da rodada
+│   ├── stats.js                # grava rodadas e lê estatísticas no Supabase
 │   ├── registry.js             # contador de salas P2P (eleição, repasse para o admin)
 │   ├── adminCrypto.js          # assinatura e criptografia do admin
 │   └── adminKeys.js            # chaves públicas do admin (gerado pelo script)
 └── index.css                   # Tailwind + animação 3D das cartas
 scripts/gerar-chave-admin.mjs   # gera as chaves e o link mágico
+supabase/schema.sql             # tabela, permissões e função get_stats()
 ```
 
 ## Deploy
@@ -127,7 +143,8 @@ Todo push na `main` publica automaticamente no GitHub Pages via GitHub Actions
 
 ## Privacidade
 
-- Nenhum dado é gravado em servidor, banco, cookie ou `localStorage`.
+- Nomes, códigos de sala e votos identificáveis nunca são gravados em servidor, cookie ou `localStorage`.
+- Com o Supabase ligado, ficam só estatísticas anônimas por rodada (cartas jogadas e quantos não votaram).
 - O servidor de sinalização do PeerJS vê apenas IDs de conexão, nunca nomes ou votos.
 - O contador de salas recebe em claro só números (salas e pessoas); os detalhes vão criptografados para o admin.
 - Redes corporativas muito restritas podem bloquear WebRTC (seria necessário um servidor TURN).

@@ -5,3 +5,7 @@ dist
 
 # Link mágico do admin (contém chaves privadas)
 .admin-link.txt
+
+# Variáveis de ambiente e credenciais (o .env.example é versionado)
+.env
+*.env
