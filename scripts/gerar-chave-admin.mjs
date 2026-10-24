@@ -31,4 +31,4 @@ export const ADMIN_ENC_PUBLIC = { x: '${encJwk.x}', y: '${encJwk.y}' }
 console.log('Chaves públicas gravadas em src/lib/adminKeys.js\n')
 console.log('LINK MÁGICO (guarde nos favoritos e não compartilhe):\n')
 console.log(`${siteUrl}#admin=${signJwk.d}.${encJwk.d}\n`)
-console.log('Para testar localmente: http://localhost:5173/planning-poker/#admin=' + `${signJwk.d}.${encJwk.d}`)
+console.log(`Para testar localmente: http://localhost:5173${new URL(siteUrl).pathname}#admin=${signJwk.d}.${encJwk.d}`)

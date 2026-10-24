@@ -68,11 +68,12 @@ de chave pública** (Web Crypto, curva P-256):
 **Gerar (ou trocar) o link:**
 
 ```bash
-node scripts/gerar-chave-admin.mjs > .admin-link.txt
+node scripts/gerar-chave-admin.mjs https://<seu-usuario>.github.io/<nome-do-repositorio>/ > .admin-link.txt
 ```
 
 O script atualiza `src/lib/adminKeys.js` e grava o link mágico (`.../planning-poker/#admin=...`) em
-`.admin-link.txt`, que está no `.gitignore`. Faça commit e push do `adminKeys.js` e guarde o link nos
+`.admin-link.txt`, que está no `.gitignore`. Sem a URL, ele usa `https://luis-costa-f.github.io/planning-poker/`
+(o site original): numa cópia, passe sempre a sua. Faça commit e push do `adminKeys.js` e guarde o link nos
 favoritos. Se o link vazar, rode o script de novo: o antigo para de funcionar quando o deploy terminar.
 
 ## Estatísticas (Supabase, opcional)
@@ -91,9 +92,13 @@ Sem as variáveis `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` no build, nada é gr
 
 [React 19](https://react.dev) · [Vite 6](https://vite.dev) · [Tailwind CSS 4](https://tailwindcss.com) · [PeerJS](https://peerjs.com) · GitHub Pages · [Supabase](https://supabase.com) (opcional)
 
+## Quer a sua própria cópia?
+
+📖 Roteiro completo, do zero ao site publicado: [docs/REPRODUZIR.md](docs/REPRODUZIR.md)
+
 ## Rodando localmente
 
-Requer Node.js 20+.
+Requer [Node.js](https://nodejs.org) 20+ (confira com `node -v`) e [Git](https://git-scm.com).
 
 ```bash
 npm install

@@ -3,6 +3,8 @@
 export const DECK = ['0', '½', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕']
 
 // Prefixo para os IDs no servidor público do PeerJS, evitando colisão com outros apps.
+// Numa cópia deste projeto, troque por um prefixo próprio (ex.: 'ppoker-fulano-'): com o mesmo
+// prefixo, as duas cópias dividem códigos de sala e o contador de salas abertas.
 export const PEER_PREFIX = 'ppoker-br-'
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // sem 0/O/1/I para evitar confusão

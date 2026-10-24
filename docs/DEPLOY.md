@@ -40,6 +40,10 @@ export default defineConfig({
 
 ## Passo 3 — Envie o código
 
+> Se você clonou este repositório (em vez de partir de uma pasta solta), ele já tem `.git`.
+> Pule o `git init` e troque o remoto: `git remote set-url origin https://github.com/<seu-usuario>/planning-poker.git`,
+> depois `git push -u origin main`.
+
 No terminal, dentro da pasta do projeto:
 
 ```bash
@@ -71,7 +75,22 @@ Pronto, não precisa escolher branch.
 
 A partir daqui, **todo `git push` na `main` publica automaticamente** a nova versão.
 
-## Passo 6 (opcional) — Estatísticas
+## Passo 6 — Gere o seu link de admin
+
+O `src/lib/adminKeys.js` que veio no projeto tem as chaves do dono original. Gere as suas, passando
+a URL do seu site:
+
+```bash
+node scripts/gerar-chave-admin.mjs https://<seu-usuario>.github.io/planning-poker/ > .admin-link.txt
+git add src/lib/adminKeys.js
+git commit -m "chore: chaves do painel de admin"
+git push
+```
+
+Quando o deploy terminar, abra o link que está em `.admin-link.txt` (o arquivo não vai para o git).
+Guarde-o nos favoritos ou num gerenciador de senhas: sem ele não há como entrar no painel, só gerando outro.
+
+## Passo 7 (opcional) — Estatísticas
 
 Para o painel do admin mostrar estatísticas das rodadas, crie um projeto no Supabase e cadastre as
 variáveis `SUPABASE_URL` e `SUPABASE_KEY` em **Settings → Secrets and variables → Actions → Variables**.
@@ -115,6 +134,9 @@ escolha **Source: Deploy from a branch**, branch `gh-pages`, pasta `/ (root)`.
 | Página em branco, 404 em `/assets/...` | `base` errado no `vite.config.js`. Deve ser `'/<nome-do-repo>/'`. |
 | Action falha em `npm ci` | Falta o `package-lock.json` no repositório. Rode `npm install` localmente e faça commit dele. |
 | Action falha em "deploy" com erro de permissão/ambiente | **Settings → Pages → Source** não está em **GitHub Actions**. |
+| Build falha com "VITE_SUPABASE_KEY é uma chave SECRETA" | A variável `SUPABASE_KEY` (ou o `.env.local`) tem a `sb_secret_...`/`service_role`. Troque pela publishable e **revogue** a secreta no Supabase ([SUPABASE.md](SUPABASE.md#passo-3--pegue-a-url-e-a-chave-pública)). |
+| Link de admin abre o jogo normal ou o painel fica vazio/sem acesso | O `adminKeys.js` publicado não é o do seu link: faça commit e push dele e espere o deploy. Se perdeu o link, gere outro (Passo 6). |
+| Contador mostra salas que não são suas | O `PEER_PREFIX` em `src/lib/poker.js` ainda é o do projeto original. Troque por um prefixo próprio. |
 | Aba Estatísticas diz "Estatísticas desligadas" | Faltam as variáveis `SUPABASE_URL` / `SUPABASE_KEY` (aba **Variables**, não Secrets) ou o deploy não rodou depois de criá-las. |
 | Estatísticas com erro 401/404 | Chave errada (use a publishable/anon) ou o `supabase/schema.sql` não foi executado. Projeto pausado também falha: reative no dashboard. |
 | "Sala não encontrada" | Código errado, ou o Host fechou/recarregou a aba. |
