@@ -42,8 +42,10 @@ votaram. **Sem nomes e sem o código da sala** (cada sala recebe um ID aleatóri
    - **Publishable key** (`sb_publishable_...`). Se o seu projeto só mostrar as chaves antigas,
      use a **`anon` `public`** (começa com `eyJ...`). O código aceita as duas.
 
-> ⚠️ **Nunca** use a `secret` / `service_role`: ela ignora todas as permissões e ficaria
-> visível para qualquer um no JavaScript do site.
+> ⚠️ **Nunca** use a `secret` (`sb_secret_...`) / `service_role`: ela ignora todas as permissões e
+> ficaria visível para qualquer um no JavaScript do site. O build falha de propósito se você usar uma
+> delas. Se ela chegou a ser publicada, apague-a em **Project Settings → API Keys** (e gere outra se
+> precisar), porque quem copiou continua com acesso até ela ser revogada.
 
 ## Passo 4 — Configure no GitHub (site publicado)
 
