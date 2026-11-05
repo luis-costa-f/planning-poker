@@ -5,6 +5,7 @@ import {
   MAX_ROOM_NAME,
   MAX_TEAM_EXTRAS,
   PEER_PREFIX,
+  isThrowableEmoji,
   clampAllocation,
   clampSprintConfig,
   generateRoomCode,
@@ -33,14 +34,20 @@ import { newRoomId, recordRound } from '../lib/stats'
  *     { type: 'allocation', target, value }   <- própria linha ou pessoa adicionada à mão
  *     { type: 'add-member', name, allocation } | { type: 'remove-member', id }
  *     { type: 'sprint-config', patch }         <- { days?, holidays?, pointsPerDay?, roundDown? }
+ *   { type: 'throw', target, emoji }          <- jogar um emoji (qualquer um) em alguém da mesa
  * Mensagens host -> convidado:  { type: 'state', state }
- * O nome da sala só o Host altera (ação local, sem mensagem).
+ *   { type: 'throw', id, target, emoji }       <- retransmitido a todos SEM dizer quem jogou (anônimo); só animação
+ * O nome da sala e o modo "só conduzir" (Host não vota) só o Host altera (ação local, sem mensagem).
  */
 
 const CONNECT_TIMEOUT_MS = 12000
 // Sala sem nenhuma atividade (entrada, voto, revelação...) por esse tempo é encerrada sozinha
 const IDLE_LIMIT_MS = 60 * 60_000
 const IDLE_CHECK_MS = 60_000
+// Emojis jogados: intervalo mínimo por pessoa, tempo na tela e quantos voando ao mesmo tempo
+const THROW_COOLDOWN_MS = 300
+const THROW_LIFETIME_MS = 1800
+const MAX_FLYING = 20
 
 const initialGame = { participants: [], revealed: false, round: 1, roomName: '', sprint: DEFAULT_SPRINT, extras: [] }
 
@@ -52,6 +59,7 @@ export function usePlanningPoker() {
   const [myId, setMyId] = useState('')
   const [myVote, setMyVote] = useState(null)
   const [game, setGame] = useState(initialGame)
+  const [throws, setThrows] = useState([]) // emojis voando agora: { id, target, emoji }
 
   const peerRef = useRef(null)
   // Host: conexões abertas (peerId -> DataConnection) e estado completo do jogo
@@ -65,6 +73,14 @@ export function usePlanningPoker() {
   const idleTimerRef = useRef(null)
   // roomId: UUID aleatório usado só nas estatísticas (nunca o código da sala)
   const roomInfoRef = useRef({ code: '', roomId: '', createdAt: 0, lastActivity: 0 })
+  // Host: último emoji jogado por cada pessoa (limite de frequência)
+  const lastThrowRef = useRef(new Map())
+
+  // Mostra um emoji voando e o tira da tela quando a animação acaba
+  const showThrow = useCallback((t) => {
+    setThrows((list) => [...list.slice(-(MAX_FLYING - 1)), t])
+    setTimeout(() => setThrows((list) => list.filter((x) => x.id !== t.id)), THROW_LIFETIME_MS)
+  }, [])
 
   // ---------- utilitários ----------
 
@@ -91,6 +107,7 @@ export function usePlanningPoker() {
       setMyId('')
       setMyVote(null)
       setGame(initialGame)
+      setThrows([])
       setError(message)
     },
     [cleanup],
@@ -118,6 +135,7 @@ export function usePlanningPoker() {
       id,
       name: p.name,
       isHost: p.isHost,
+      spectator: !!p.spectator, // Host que só conduz e não vota
       allocation: p.allocation,
       hasVoted: p.vote != null,
       vote: state.revealed ? p.vote : null,
@@ -178,8 +196,19 @@ export function usePlanningPoker() {
         }
       } else if (msg.type === 'add-member') {
         const name = String(msg.name ?? '').trim().slice(0, 30)
-        if (name && state.extras.length < MAX_TEAM_EXTRAS) {
-          state.extras.push({ id: `x${state.nextExtraId++}`, name, allocation: clampAllocation(msg.allocation ?? 100) })
+        // Quem adiciona pode sugerir o id, para continuar editando a linha antes da resposta do Host
+        const wanted = typeof msg.id === 'string' && /^x[\w-]{1,40}$/.test(msg.id) ? msg.id : null
+        const taken = (id) => state.participants.has(id) || state.extras.some((x) => x.id === id)
+        if (name && state.extras.length < MAX_TEAM_EXTRAS && !(wanted && taken(wanted))) {
+          const id = wanted ?? `x${state.nextExtraId++}`
+          state.extras.push({ id, name, allocation: clampAllocation(msg.allocation ?? 100) })
+          changed = true
+        }
+      } else if (msg.type === 'rename-member') {
+        const name = String(msg.name ?? '').trim().slice(0, 30)
+        const extra = state.extras.find((x) => x.id === msg.id)
+        if (extra && name && extra.name !== name) {
+          extra.name = name
           changed = true
         }
       } else if (msg.type === 'remove-member') {
@@ -189,6 +218,13 @@ export function usePlanningPoker() {
       } else if (msg.type === 'sprint-config') {
         state.sprint = clampSprintConfig(msg.patch, state.sprint)
         changed = true
+      } else if (msg.type === 'spectate' && fromHost) {
+        const me = state.participants.get(senderId)
+        if (me) {
+          me.spectator = !!msg.value
+          if (me.spectator) me.vote = null
+          changed = true
+        }
       } else if (msg.type === 'room-name' && fromHost) {
         state.roomName = String(msg.name ?? '').trim().slice(0, MAX_ROOM_NAME)
         changed = true
@@ -197,6 +233,26 @@ export function usePlanningPoker() {
       if (changed) broadcast()
     },
     [broadcast],
+  )
+
+  // Emoji jogado em alguém: o Host confere e retransmite para todos (inclusive quem jogou)
+  const relayThrow = useCallback(
+    (from, msg) => {
+      const state = hostStateRef.current
+      const target = String(msg.target ?? '')
+      if (!state || !isThrowableEmoji(msg.emoji) || target === from || !state.participants.has(target)) return
+      const now = Date.now()
+      if (now - (lastThrowRef.current.get(from) ?? 0) < THROW_COOLDOWN_MS) return
+      lastThrowRef.current.set(from, now)
+
+      // Anônimo: quem jogou não vai na mensagem (o Host só usa para limitar a frequência)
+      const event = { type: 'throw', id: Math.random().toString(36).slice(2), target, emoji: msg.emoji }
+      connectionsRef.current.forEach((conn) => {
+        if (conn.open) conn.send(event)
+      })
+      showThrow(event)
+    },
+    [showThrow],
   )
 
   const handleGuestMessage = useCallback(
@@ -214,11 +270,13 @@ export function usePlanningPoker() {
         if (!p || state.revealed) return // não aceita votos depois de revelar
         p.vote = msg.value == null ? null : String(msg.value).slice(0, 4)
         broadcast()
+      } else if (msg.type === 'throw') {
+        if (state.participants.has(conn.peer)) relayThrow(conn.peer, msg)
       } else if (state.participants.has(conn.peer)) {
         applyTeamAction(conn.peer, msg, false)
       }
     },
-    [applyTeamAction, broadcast],
+    [applyTeamAction, broadcast, relayThrow],
   )
 
   const createRoom = useCallback(
@@ -270,6 +328,7 @@ export function usePlanningPoker() {
           conn.on('data', (msg) => handleGuestMessage(conn, msg))
           conn.on('close', () => {
             connectionsRef.current.delete(conn.peer)
+            lastThrowRef.current.delete(conn.peer)
             hostStateRef.current?.participants.delete(conn.peer)
             broadcast()
           })
@@ -337,6 +396,10 @@ export function usePlanningPoker() {
         })
 
         conn.on('data', (msg) => {
+          if (msg?.type === 'throw') {
+            if (isThrowableEmoji(msg.emoji)) showThrow(msg)
+            return
+          }
           if (msg?.type !== 'state') return
           setGame(msg.state)
           // Sincroniza o voto local com o que o host conhece (ex.: após "Nova Rodada")
@@ -355,7 +418,7 @@ export function usePlanningPoker() {
         resetToLobby(describeError(err))
       })
     },
-    [cleanup, resetToLobby],
+    [cleanup, resetToLobby, showThrow],
   )
 
   // ---------- ações da mesa ----------
@@ -364,13 +427,15 @@ export function usePlanningPoker() {
     (value) => {
       if (game.revealed) return
       const next = myVote === value ? null : value // clicar de novo desmarca
-      setMyVote(next)
 
       if (isHost) {
         const me = hostStateRef.current?.participants.get(myId)
-        if (me) me.vote = next
+        if (!me || me.spectator) return
+        setMyVote(next)
+        me.vote = next
         broadcast()
       } else {
+        setMyVote(next)
         hostConnRef.current?.send({ type: 'vote', value: next })
       }
     },
@@ -382,7 +447,9 @@ export function usePlanningPoker() {
     if (!isHost || !state || state.revealed) return
     state.revealed = true
     broadcast()
-    recordRound({ roomId: roomInfoRef.current.roomId, round: state.round, participants: [...state.participants.values()] })
+    // Quem só conduz não entra na conta de "não votaram"
+    const voters = [...state.participants.values()].filter((p) => !p.spectator)
+    recordRound({ roomId: roomInfoRef.current.roomId, round: state.round, participants: voters })
   }, [broadcast, isHost])
 
   const newRound = useCallback(() => {
@@ -409,10 +476,34 @@ export function usePlanningPoker() {
   )
 
   const setAllocation = useCallback((target, value) => teamAction({ type: 'allocation', target, value }), [teamAction])
-  const addMember = useCallback((name, allocation) => teamAction({ type: 'add-member', name, allocation }), [teamAction])
+  const addMember = useCallback(
+    (name, allocation, id) => teamAction({ type: 'add-member', name, allocation, id }),
+    [teamAction],
+  )
+  const renameMember = useCallback((id, name) => teamAction({ type: 'rename-member', id, name }), [teamAction])
   const removeMember = useCallback((id) => teamAction({ type: 'remove-member', id }), [teamAction])
   const setSprintConfig = useCallback((patch) => teamAction({ type: 'sprint-config', patch }), [teamAction])
   const setRoomName = useCallback((name) => isHost && teamAction({ type: 'room-name', name }), [isHost, teamAction])
+
+  // Host escolhe só conduzir a sala, sem votar (e pode voltar a votar)
+  const setSpectating = useCallback(
+    (value) => {
+      if (!isHost) return
+      if (value) setMyVote(null)
+      teamAction({ type: 'spectate', value })
+    },
+    [isHost, teamAction],
+  )
+
+  // Jogar um emoji em alguém da mesa
+  const throwEmoji = useCallback(
+    (target, emoji) => {
+      const msg = { type: 'throw', target, emoji }
+      if (isHost) relayThrow(myId, msg)
+      else hostConnRef.current?.send(msg)
+    },
+    [isHost, myId, relayThrow],
+  )
 
   return {
     status,
@@ -430,9 +521,13 @@ export function usePlanningPoker() {
     leave,
     setAllocation,
     addMember,
+    renameMember,
     removeMember,
     setSprintConfig,
     setRoomName,
+    setSpectating,
+    throws,
+    throwEmoji,
   }
 }
 

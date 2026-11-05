@@ -11,15 +11,25 @@ import { DEFAULT_SPRINT, MAX_SPRINT_DAYS, MAX_TEAM_EXTRAS, computeCapacity } fro
  * Tudo fica só na memória do Host, como o resto do jogo.
  */
 export default function TeamCapacity({ poker }) {
-  const { game, myId, isHost, setAllocation, addMember, removeMember, setSprintConfig } = poker
+  const { game, myId, isHost, setAllocation, addMember, renameMember, removeMember, setSprintConfig } = poker
   const { participants, extras = [], sprint = DEFAULT_SPRINT } = game
   const [open, setOpen] = useState(true)
+  // Pessoa sendo adicionada agora: já existe na sala desde a primeira letra, mas continua
+  // na linha de "Adicionar pessoa" até o foco sair dela
+  const [draftId, setDraftId] = useState(null)
+  const [rowKey, setRowKey] = useState(0) // troca para esvaziar a linha de adicionar
+  const finishDraft = () => {
+    setDraftId(null)
+    setRowKey((k) => k + 1)
+  }
 
   const members = [
-    ...participants.map((p) => ({ ...p, voter: true, editable: isHost || p.id === myId })),
-    ...extras.map((x) => ({ ...x, voter: false, editable: true })),
+    ...participants.map((p) => ({ ...p, voter: !p.spectator, editable: isHost || p.id === myId })),
+    ...extras.map((x) => ({ ...x, voter: false, extra: true, editable: true })),
   ]
   const { workDays, fullPoints, averageAllocation, capacity, pointsFor } = computeCapacity(members, sprint)
+  const draft = draftId ? extras.find((x) => x.id === draftId) : null
+  const listed = members.filter((m) => m.id !== draftId)
 
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-900/70 shadow-xl backdrop-blur">
@@ -44,7 +54,14 @@ export default function TeamCapacity({ poker }) {
             <span className="font-semibold text-slate-200">{fmt(fullPoints)} pts</span> por pessoa a 100%
           </p>
 
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
+            {/* Larguras fixas: o campo de % não se mexe quando os números mudam de tamanho */}
+            <colgroup>
+              <col />
+              <col className="w-24" />
+              <col className="w-14" />
+              <col className="w-7" />
+            </colgroup>
             <thead>
               <tr className="text-left text-xs uppercase tracking-wider text-slate-500">
                 <th className="pb-1 font-medium">Pessoa</th>
@@ -54,7 +71,7 @@ export default function TeamCapacity({ poker }) {
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => (
+              {listed.map((m) => (
                 <tr key={m.id} className="border-t border-white/5">
                   <td className="max-w-0 py-1.5 pr-2">
                     <span className="flex items-center gap-2">
@@ -63,14 +80,18 @@ export default function TeamCapacity({ poker }) {
                         aria-hidden="true"
                         className={`h-4 w-1 shrink-0 rounded-full ${m.voter ? 'bg-transparent' : 'bg-orange-400'}`}
                       />
-                      <span
-                        className={`truncate ${m.id === myId ? 'text-blue-300' : 'text-white'}`}
-                        title={m.voter ? m.name : `${m.name} (não está votando)`}
-                      >
-                        {m.isHost && '👑 '}
-                        {m.name}
-                        {!m.voter && <span className="sr-only"> (não está votando)</span>}
-                      </span>
+                      {!m.extra ? (
+                        <span className={`truncate ${m.id === myId ? 'text-blue-300' : 'text-white'}`} title={m.voter ? m.name : `${m.name} (não está votando)`}>
+                          {m.isHost && '👑 '}
+                          {m.name}
+                        </span>
+                      ) : (
+                        <NameField
+                          value={m.name}
+                          onChange={(name) => renameMember(m.id, name)}
+                          ariaLabel={`Nome de ${m.name} (não está votando)`}
+                        />
+                      )}
                     </span>
                   </td>
                   <td className="py-1.5 text-right whitespace-nowrap">
@@ -88,9 +109,11 @@ export default function TeamCapacity({ poker }) {
                       <span className="text-slate-300">{m.allocation}%</span>
                     )}
                   </td>
-                  <td className="py-1.5 pl-2 text-right text-slate-300">{fmt(pointsFor(m.allocation))}</td>
+                  <td className="truncate py-1.5 pl-2 text-right text-slate-300 tabular-nums">
+                    {fmt(pointsFor(m.allocation))}
+                  </td>
                   <td className="py-1.5 text-right">
-                    {!m.voter && (
+                    {m.extra && (
                       <button
                         onClick={() => removeMember(m.id)}
                         aria-label={`Remover ${m.name}`}
@@ -102,17 +125,35 @@ export default function TeamCapacity({ poker }) {
                   </td>
                 </tr>
               ))}
+              {(draft || extras.length < MAX_TEAM_EXTRAS) && (
+                <NewMemberRow
+                  key={rowKey}
+                  member={draft}
+                  points={draft ? fmt(pointsFor(draft.allocation)) : null}
+                  onStart={(name, allocation) => {
+                    const id = `x${Math.random().toString(36).slice(2, 10)}`
+                    setDraftId(id)
+                    addMember(name, allocation, id)
+                    return id
+                  }}
+                  onRename={renameMember}
+                  onAllocation={setAllocation}
+                  onRemove={(id) => {
+                    removeMember(id)
+                    finishDraft()
+                  }}
+                  onDone={finishDraft}
+                />
+              )}
             </tbody>
           </table>
 
-          {extras.length > 0 && (
+          {members.some((m) => !m.voter) && (
             <p className="-mt-2 flex items-center gap-2 text-xs text-slate-400">
               <span aria-hidden="true" className="h-3 w-1 rounded-full bg-orange-400" />
               Não está votando
             </p>
           )}
-
-          {extras.length < MAX_TEAM_EXTRAS && <AddMemberForm onAdd={addMember} />}
 
           <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm">
             <div className="flex justify-between text-slate-300">
@@ -189,47 +230,121 @@ function ConfigField({ label, children }) {
   )
 }
 
-function AddMemberForm({ onAdd }) {
-  const [name, setName] = useState('')
-  const [allocation, setAllocation] = useState('100')
+/*
+ * Última linha da tabela: digitar a primeira letra já adiciona a pessoa (sem botão de confirmar).
+ * As letras seguintes renomeiam, e a alocação ao lado já vale para ela. Quando o foco sai da
+ * linha (ou Enter), ela vira uma linha comum e esta volta a ficar vazia.
+ * O id é gerado aqui, então dá para continuar digitando sem esperar a resposta do Host.
+ */
+function NewMemberRow({ member, points, onStart, onRename, onAllocation, onRemove, onDone }) {
+  const rowRef = useRef(null)
+  const idRef = useRef(member?.id ?? null)
+  const [name, setName] = useState(member?.name ?? '')
+  const [allocation, setAllocationValue] = useState(member?.allocation ?? 100)
 
-  const submit = (e) => {
-    e.preventDefault()
-    const trimmed = name.trim()
+  const changeName = (text) => {
+    setName(text)
+    const trimmed = text.trim()
     if (!trimmed) return
-    onAdd(trimmed, allocation === '' ? 100 : Number(allocation))
-    setName('')
-    setAllocation('100')
+    if (idRef.current) onRename(idRef.current, trimmed)
+    else idRef.current = onStart(trimmed, allocation)
+  }
+
+  const changeAllocation = (value) => {
+    setAllocationValue(value)
+    if (idRef.current) onAllocation(idRef.current, value)
+  }
+
+  const finish = () => {
+    const id = idRef.current
+    if (!id) return
+    if (!name.trim()) onRemove(id) // apagou o nome todo: desiste de adicionar
+    else onDone()
   }
 
   return (
-    <form onSubmit={submit} className="flex gap-2">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        maxLength={30}
-        placeholder="Adicionar pessoa"
-        aria-label="Nome da pessoa"
-        className="min-w-0 flex-1 rounded-md border border-white/10 bg-slate-900/80 px-2 py-1 text-sm outline-none focus:border-blue-400"
-      />
-      <input
-        type="number"
-        min={0}
-        max={100}
-        step={5}
-        value={allocation}
-        onChange={(e) => setAllocation(e.target.value)}
-        aria-label="Alocação da pessoa (%)"
-        className="w-16 rounded-md border border-white/10 bg-slate-900/80 px-2 py-1 text-right text-sm outline-none focus:border-blue-400"
-      />
-      <button
-        type="submit"
-        disabled={!name.trim()}
-        className="rounded-md bg-blue-400 px-2.5 py-1 text-sm font-semibold text-slate-950 transition hover:bg-blue-300 disabled:opacity-40"
-      >
-        +
-      </button>
-    </form>
+    <tr
+      ref={rowRef}
+      className="border-t border-white/5"
+      onBlur={(e) => {
+        if (!rowRef.current?.contains(e.relatedTarget)) finish()
+      }}
+    >
+      <td className="py-1.5 pr-2">
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className={`h-4 w-1 shrink-0 rounded-full ${idRef.current ? 'bg-orange-400' : 'bg-transparent'}`}
+          />
+          <input
+            value={name}
+            onChange={(e) => changeName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
+            maxLength={30}
+            placeholder="+ Pessoa"
+            aria-label="Nome da pessoa a adicionar"
+            className={nameInputClass}
+          />
+        </span>
+      </td>
+      <td className="py-1.5 text-right whitespace-nowrap">
+        <NumberField
+          value={member?.allocation ?? allocation}
+          onCommit={changeAllocation}
+          max={100}
+          step={5}
+          ariaLabel="Alocação da pessoa a adicionar"
+          className="w-16"
+          suffix="%"
+        />
+      </td>
+      <td className="truncate py-1.5 pl-2 text-right text-slate-300 tabular-nums">{points}</td>
+      <td className="py-1.5 text-right">
+        {idRef.current && (
+          <button
+            onClick={() => onRemove(idRef.current)}
+            aria-label={`Remover ${name}`}
+            className="rounded px-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300"
+          >
+            ✕
+          </button>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+const nameInputClass =
+  'w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm text-white outline-none placeholder:text-slate-500 hover:border-white/10 focus:border-blue-400 focus:bg-slate-900/80'
+
+// Nome editável de quem foi adicionado pelo nome. Envia a cada letra; se ficar vazio, volta ao nome atual.
+function NameField({ value, onChange, ariaLabel }) {
+  const [draft, setDraft] = useState(value)
+  const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [value, editing])
+
+  return (
+    <input
+      value={draft}
+      title={`${value} (não está votando)`}
+      maxLength={30}
+      aria-label={ariaLabel}
+      onFocus={() => setEditing(true)}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        if (e.target.value.trim()) onChange(e.target.value.trim())
+      }}
+      onBlur={() => setEditing(false)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+      }}
+      className={nameInputClass}
+    />
   )
 }
 

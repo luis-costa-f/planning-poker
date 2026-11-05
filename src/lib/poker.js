@@ -26,6 +26,20 @@ export const MAX_ROOM_NAME = 40
 export const MAX_TEAM_EXTRAS = 30
 // Configuração da sprint de cada sala (padrão: 15 dias úteis, 1 ponto por dia, sem feriados)
 export const MAX_SPRINT_DAYS = 60
+// Atalhos no seletor de emojis para jogar em alguém da mesa (qualquer emoji vale, ver isThrowableEmoji)
+export const THROW_EMOJIS = ['👋', '⏰', '☕', '🍅', '🎯', '🎉', '🤔', '💤']
+
+// Um único emoji (inclusive com tom de pele, bandeiras e combinações com ZWJ), nada de texto
+const SINGLE_EMOJI = (() => {
+  try {
+    return new RegExp('^\\p{RGI_Emoji}$', 'v')
+  } catch {
+    // Navegador sem a flag "v": aceita sequências curtas de pictogramas e seus modificadores
+    return /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|‍|️|[⃣#*0-9])+$/u
+  }
+})()
+
+export const isThrowableEmoji = (value) => typeof value === 'string' && value.length <= 16 && SINGLE_EMOJI.test(value)
 export const DEFAULT_SPRINT = { days: 15, holidays: 0, pointsPerDay: 1, roundDown: false }
 
 // Alocação em % inteiro de 0 a 100 (padrão 100)

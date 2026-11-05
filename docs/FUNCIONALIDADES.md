@@ -18,12 +18,14 @@ Lista completa do que o Planning Poker P2P faz, agrupada por área.
 - O Host **renomeia a sala** a qualquer momento.
 - Mesa com os participantes distribuídos acima e abaixo; 👑 no Host e o próprio nome em azul.
 - Status de cada pessoa: **Votando...** ou **Votou!**
+- **Jogar emoji em alguém** para chamar a atenção: clique na carta da pessoa e escolha um dos atalhos (👋 ⏰ ☕ 🍅 🎯 🎉 🤔 💤) ou qualquer outro em **Mais emojis…**, com busca. É **anônimo**: todos veem o emoji vir de um ponto aleatório da borda da tela até a carta da pessoa, que balança com o impacto, mas ninguém sabe quem jogou.
 
 ## Votação
 
 - Baralho Fibonacci: `0 ½ 1 2 3 5 8 13 21 34 55 89 ? ☕`.
 - Para desmarcar o voto, basta clicar de novo na mesma carta.
 - Os **votos ficam ocultos** até o Host revelar, inclusive na rede: os valores só são enviados depois da revelação.
+- O Host pode escolher **só conduzir a sala, sem votar** (e voltar a votar quando quiser). Na mesa ele aparece como "Só conduzindo" e, na capacidade, com a barra laranja de quem não vota.
 - O Host **revela as cartas** (precisa haver pelo menos um voto) e as cartas viram com animação 3D.
 - Resultado da rodada:
   - **valor mais votado** no centro da mesa (ou a média, se houver empate);
@@ -37,7 +39,7 @@ Lista completa do que o Planning Poker P2P faz, agrupada por área.
 - Tabela "👥 Capacidade do time" no canto da sala, que pode ser recolhida.
 - Quem está na sala entra na tabela automaticamente, com 100% de alocação.
 - Cada membro informa a **própria alocação (%)**; o Host pode ajustar a de todos.
-- Qualquer pessoa pode **adicionar alguém do time pelo nome**, mesmo que não vote (até 30 pessoas), e remover depois. Essas pessoas aparecem com uma barra laranja, explicada na legenda "Não está votando".
+- Qualquer pessoa pode **adicionar alguém do time pelo nome**, mesmo que não vote (até 30 pessoas), e remover depois. Basta digitar na última linha da tabela: a pessoa passa a existir na primeira letra, sem botão de confirmar, e o nome continua editável. Essas pessoas aparecem com uma barra laranja, explicada na legenda "Não está votando".
 - **Configuração da sprint** de cada sala, que qualquer pessoa altera:
   - **dias úteis** (padrão 15);
   - **feriados/folgas**, que diminuem os dias da sprint;

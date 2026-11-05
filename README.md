@@ -12,13 +12,14 @@ Os participantes se conectam peer-to-peer via WebRTC; quando a sala fecha, tudo 
 - **Criar sala** com um código curto (ex.: `HW83P2`) ou **entrar** pelo código / link de convite
 - **Nome da sala** opcional (definido por quem cria, renomeável pelo Host a qualquer momento)
 - Lista de participantes com status **Votando...** / **Votou!**
+- **Jogar emoji** (qualquer um) em alguém da mesa para chamar a atenção, de forma anônima: todos veem o emoji vir da borda da tela até a pessoa
 - **Capacidade do time** numa tabela no canto: configuração da sprint por sala (**dias úteis**, **feriados**,
   pontos por dia e arredondamento), **alocação (%)** de cada membro e pessoas do time adicionadas só pelo nome
   (mesmo sem votar). Ex.: sprint de 15 dias = 15 pts por pessoa; quem está 30% alocado fica com 4,5 (ou 4)
 - Baralho Fibonacci: `0 ½ 1 2 3 5 8 13 21 34 55 89 ? ☕`
 - Votos **ocultos** até o Host revelar (inclusive na rede: os valores só são enviados após a revelação)
 - Animação de virar as cartas, valor mais votado, gráfico de distribuição, % de concordância e média
-- Controles do Host: **Revelar Cartas** e **Votar novamente**
+- Controles do Host: **Revelar Cartas**, **Votar novamente** e **só conduzir** (o Host não vota)
 - Layout responsivo (desktop e celular)
 - **Contador de salas abertas** no Lobby (sem servidor: ver abaixo)
 - Salas se fecham sozinhas: ao fechar a aba do Host ou após **60 min sem atividade**
