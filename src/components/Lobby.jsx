@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useRoomCounter } from '../hooks/useRoomCounter'
+import { MAX_ROOM_NAME } from '../lib/poker'
 
 // Permite compartilhar um link do tipo https://.../planning-poker/?sala=ABC123
 function readRoomFromUrl() {
@@ -8,6 +9,7 @@ function readRoomFromUrl() {
 
 export default function Lobby({ connecting, error, onCreate, onJoin }) {
   const [name, setName] = useState('')
+  const [roomName, setRoomName] = useState('')
   const [code, setCode] = useState(readRoomFromUrl)
   const [nameError, setNameError] = useState('')
   const count = useRoomCounter()
@@ -24,7 +26,7 @@ export default function Lobby({ connecting, error, onCreate, onJoin }) {
 
   const handleCreate = () => {
     const n = validName()
-    if (n) onCreate(n)
+    if (n) onCreate(n, roomName.trim())
   }
 
   const handleJoin = (e) => {
@@ -61,13 +63,29 @@ export default function Lobby({ connecting, error, onCreate, onJoin }) {
           {nameError && <p className="mt-1 text-sm text-rose-400">{nameError}</p>}
         </div>
 
-        <button
-          onClick={handleCreate}
-          disabled={connecting}
-          className="w-full rounded-lg bg-blue-400 px-4 py-2.5 font-semibold text-slate-950 transition hover:bg-blue-300 disabled:cursor-wait disabled:opacity-60"
-        >
-          Criar Nova Sala
-        </button>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="room-name" className="mb-1 block text-sm font-medium text-slate-300">
+              Nome da sala <span className="font-normal text-slate-500">(opcional, para quem cria)</span>
+            </label>
+            <input
+              id="room-name"
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              maxLength={MAX_ROOM_NAME}
+              placeholder="Ex.: Sprint 42 · Time Pagamentos"
+              className="w-full rounded-lg border border-white/10 bg-slate-900/80 px-3 py-2 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30"
+            />
+          </div>
+
+          <button
+            onClick={handleCreate}
+            disabled={connecting}
+            className="w-full rounded-lg bg-blue-400 px-4 py-2.5 font-semibold text-slate-950 transition hover:bg-blue-300 disabled:cursor-wait disabled:opacity-60"
+          >
+            Criar Nova Sala
+          </button>
+        </div>
 
         <div className="flex items-center gap-3 text-xs uppercase tracking-wider text-slate-500">
           <span className="h-px flex-1 bg-white/10" /> ou <span className="h-px flex-1 bg-white/10" />

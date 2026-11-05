@@ -20,20 +20,22 @@ Atue como um Desenvolvedor Front-end Sênior especialista em React e WebRTC. Pre
 ```
 .github/workflows/deploy.yml    # deploy automático no GitHub Pages
 docs/DEPLOY.md                  # tutorial de deploy passo a passo
+docs/FUNCIONALIDADES.md         # lista completa de funcionalidades, agrupada por área
 src/
 ├── main.jsx
 ├── App.jsx                     # Lobby/Room conforme a conexão, ou AdminPanel se a URL tiver #admin=
 ├── index.css                   # Tailwind + CSS da animação 3D de virar carta
 ├── components/
 │   ├── Lobby.jsx               # inclui o contador de salas abertas
-│   ├── Room.jsx                # mesa, cartas, resultados, controles do Host
+│   ├── Room.jsx                # mesa, cartas, resultados, controles do Host, nome da sala
+│   ├── TeamCapacity.jsx        # tabela de capacidade do time (configuração da sprint e alocação %)
 │   ├── AdminPanel.jsx          # painel do link mágico (abas Salas abertas / Estatísticas)
 │   └── AdminStats.jsx          # aba de estatísticas (lê o Supabase)
 ├── hooks/
 │   ├── usePlanningPoker.js     # toda a lógica PeerJS (Host e convidado) + fechamento automático
 │   └── useRoomCounter.js       # total de salas para o Lobby
 └── lib/
-    ├── poker.js                # baralho, geração de código, estatísticas (funções puras)
+    ├── poker.js                # baralho, geração de código, estatísticas, capacidade (funções puras)
     ├── registry.js             # contador de salas P2P, eleição, repasse para o admin
     ├── stats.js                # grava rodadas e lê estatísticas no Supabase
     ├── adminCrypto.js          # assinatura/criptografia do admin
@@ -50,18 +52,42 @@ README.md
 
 # Lógica de rede (`usePlanningPoker`)
 - **Código da sala:** 6 caracteres do alfabeto `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (sem 0/O/1/I), gerado com `crypto.getRandomValues`. O ID real no PeerJS é `ppoker-br-<CÓDIGO>` (prefixo para evitar colisão com outros apps no servidor público). O usuário só vê e digita o código curto; a entrada é normalizada (maiúsculas, sem espaços/símbolos).
-- **Host:** cria `new Peer(PREFIX + código)`. Se der erro `unavailable-id`, tenta outro código (até 3 vezes). Guarda o estado em `useRef`: `{ revealed, round, participants: Map<peerId, { name, vote, isHost }> }`. Em `disconnected` do servidor de sinalização, chama `peer.reconnect()` (as conexões P2P já abertas continuam).
+- **Host:** cria `new Peer(PREFIX + código)`. Se der erro `unavailable-id`, tenta outro código (até 3 vezes). Guarda o estado em `useRef`: `{ revealed, round, roomName, sprint: { days, holidays, pointsPerDay, roundDown }, participants: Map<peerId, { name, vote, isHost, allocation }>, extras: [{ id, name, allocation }], nextExtraId }`. Em `disconnected` do servidor de sinalização, chama `peer.reconnect()` (as conexões P2P já abertas continuam).
 - **Convidado:** cria `new Peer()` (ID aleatório), conecta em `PREFIX + código` com `{ reliable: true }`, envia `join` ao abrir. Timeout de 12 s para conectar.
 - **Protocolo de mensagens:**
   - Convidado → Host: `{ type: 'join', name }` e `{ type: 'vote', value }` (`value: null` desmarca).
+  - Convidado → Host (capacidade, a qualquer momento): `{ type: 'allocation', target, value }`, `{ type: 'add-member', name, allocation }`, `{ type: 'remove-member', id }`, `{ type: 'sprint-config', patch }` (`patch` com qualquer subconjunto de `days`, `holidays`, `pointsPerDay`, `roundDown`). Só aceitas de quem já entrou (`join`).
   - Host → todos: `{ type: 'state', state }`.
-- **Privacidade dos votos:** o Host envia um **estado público** em que cada participante tem `{ id, name, isHost, hasVoted, vote }`, e `vote` só vem preenchido quando `revealed === true`. Ou seja, os valores nunca trafegam na rede antes da revelação (ninguém espia pelo DevTools).
+- **Privacidade dos votos:** o Host envia um **estado público** `{ revealed, round, roomName, sprint, participants, extras }` em que cada participante tem `{ id, name, isHost, allocation, hasVoted, vote }`, e `vote` só vem preenchido quando `revealed === true`. Ou seja, os valores nunca trafegam na rede antes da revelação (ninguém espia pelo DevTools).
 - Host ignora votos depois de revelar. Nome limitado a 30 caracteres; valor do voto a 4.
 - Quando a conexão de um convidado fecha, o Host o remove e retransmite o estado.
 - Se a conexão com o Host cair, o convidado volta ao Lobby com a mensagem "O Host encerrou a sala ou a conexão caiu."
 - Mensagens de erro amigáveis: `peer-unavailable` → "Sala não encontrada. Confira o código ou peça um novo ao Host."; erros de rede/servidor → falha de rede; `browser-incompatible` → navegador sem WebRTC.
-- O hook expõe: `status` (`idle | connecting | connected`), `error`, `roomCode`, `isHost`, `myId`, `myVote`, `game`, `createRoom(name)`, `joinRoom(name, code)`, `vote(value)`, `reveal()`, `newRound()`, `leave()`.
+- O hook expõe: `status` (`idle | connecting | connected`), `error`, `roomCode`, `isHost`, `myId`, `myVote`, `game`, `createRoom(name, roomName)`, `joinRoom(name, code)`, `vote(value)`, `reveal()`, `newRound()`, `leave()`, `setAllocation(target, value)`, `addMember(name, allocation)`, `removeMember(id)`, `setSprintConfig(patch)`, `setRoomName(name)`.
 - Criar os peers nos handlers (não em `useEffect`) para funcionar bem com `StrictMode`; destruir tudo no unmount.
+
+# Nome da sala e capacidade do time
+Tudo efêmero, só na memória do Host (como o resto do jogo); nada vai para o Supabase.
+- **Nome da sala:** opcional, até 40 caracteres (`MAX_ROOM_NAME`). Informado no Lobby por quem cria e exibido no cabeçalho para todos. Só o Host altera, a qualquer momento (clicando no nome/✎; Enter salva, Esc cancela). Sem nome, o Host vê "Dar nome à sala" em cinza e os convidados não veem nada.
+- **Tabela "👥 Capacidade do time"** (`TeamCapacity.jsx`), visível para todos e editável a qualquer momento (antes, durante ou depois da votação):
+  - Todo participante da sala entra sozinho na tabela com alocação **100%**. Cada membro indica **a própria** alocação (0–100%, passo 5); o Host pode ajustar a de todos. Quem sai da sala sai da tabela.
+  - **Qualquer pessoa** pode adicionar alguém do time **só pelo nome** (máx. 30 caracteres, até 30 pessoas extras — `MAX_TEAM_EXTRAS`), mesmo que não participe da votação; essas linhas têm uma **barra laranja** fina (`bg-orange-400`) à esquerda do nome (sem texto "não vota"; o nome tem `title` e texto `sr-only` "(não está votando)"), alocação editável por todos e um ✕ para remover. Abaixo da tabela, só quando houver alguma dessas pessoas, a legenda: barra laranja + "Não está votando".
+  - **Configuração da sprint** de cada sala (`DEFAULT_SPRINT` em `poker.js`), que qualquer pessoa pode alterar a qualquer momento:
+    - **Dias úteis** da sprint: inteiro de 0 a 60 (`MAX_SPRINT_DAYS`), padrão **15**;
+    - **Feriados/folgas**: inteiro de 0 até o total de dias, padrão 0 (sprint com feriado tem menos dias);
+    - **Pontos por dia**: até 1 casa decimal, máx. 100, padrão **1** (ou seja, 15 dias = 15 pontos por pessoa);
+    - **Arredondar para baixo** (checkbox "Arredondar os pontos de cada pessoa para baixo (4,5 → 4)"), padrão desligado.
+    - Campo vazio ou inválido mantém o valor atual (`clampSprintConfig(patch, atual)`).
+  - **Cálculo** (`computeCapacity(members, sprint)` em `poker.js`):
+    - dias úteis = dias − feriados;
+    - pontos por pessoa a 100% = dias úteis × pontos por dia;
+    - pontos de cada um = pontos por pessoa × alocação, com 1 casa (ex.: 15 × 30% = 4,5) ou a parte inteira se "arredondar para baixo" (4);
+    - capacidade do time = soma dos pontos de cada um.
+  - Abaixo da configuração, a linha "13 dias úteis × 1 pt/dia = 13 pts por pessoa a 100%". Rodapé com "Alocação média X%" e "Capacidade do time Y pts"; números formatados em pt-BR (vírgula decimal).
+  - Colunas: Pessoa (👑 no Host, o próprio usuário em azul), Alocação (campo numérico ou texto se não puder editar), Pts. Formulário "Adicionar pessoa" + % (padrão 100) + botão "+".
+  - Campos numéricos (alocação e configuração da sprint) enviam **a cada alteração**, então o cálculo atualiza na hora para todos enquanto a pessoa digita (sem precisar de Enter nem sair do campo). Campo vazio ou inválido não é enviado e volta ao valor atual ao sair; não reenvia valor repetido; Esc desfaz a edição (volta ao valor de quando entrou no campo); Enter sai do campo. Enquanto a pessoa digita, atualizações do Host não sobrescrevem o que ela está digitando.
+  - O Host valida tudo (`clampAllocation`, `clampSprintConfig`, limites de tamanho) e retransmite o estado.
+  - Cabeçalho do card clicável para recolher/expandir (− / +), mostrando a capacidade em pts quando recolhido.
 
 # Contador de salas abertas (`lib/registry.js` + `hooks/useRoomCounter.js`)
 Sem servidor próprio. Um dos Hosts vira o **contador**: o primeiro que conseguir registrar o ID fixo `ppoker-br-registry-v1` no PeerJS (num segundo objeto `Peer`, separado do da sala).
@@ -82,13 +108,13 @@ Link secreto só para o dono do site: `https://luis-costa-f.github.io/planning-p
   - `encryptForAdmin(data)` (Host): chave ECDH efêmera + chave pública do admin → AES-GCM 256; retorna `{ epk, iv, ct }` em base64url.
   - `verifyAdminCommand(cmd, sig, roomCode)` (Host): verifica ECDSA/SHA-256 com a chave pública; aceita só se `code` for o da própria sala e `ts` tiver menos de 2 min.
   - `loadAdminKeys(secret)`, `decryptAsAdmin(keys, blob)`, `signAdminCommand(keys, command)` (admin). `loadAdminKeys` faz uma prova real (assina/verifica e cifra/decifra) para detectar link inválido ou de chave antiga.
-- O Host envia ao contador um `blob` cifrado com `{ code, createdAt, lastActivity, round, revealed, names, voted }`; só recifra quando algo muda. Sem Web Crypto, segue só com a contagem.
+- O Host envia ao contador um `blob` cifrado com `{ code, roomName, createdAt, lastActivity, round, revealed, names, voted }`; só recifra quando algo muda. Sem Web Crypto, segue só com a contagem.
 - Comando: o admin envia `{ type: 'admin-cmd', key, cmd, sig }` ao contador, que só repassa ao Host dono de `key` (ou trata localmente se `key === 'self'`). O Host verifica a assinatura e, se `action === 'close'`, volta ao Lobby com "A sala foi encerrada pelo administrador do site." (os convidados caem junto).
 - `App.jsx`: se `location.hash` começar com `#admin=`, renderiza `AdminPanel` em vez do jogo.
 - `AdminPanel.jsx`:
   - Cabeçalho "🛡️ Painel do admin" + botão "Ir para o app".
   - Números grandes "Salas abertas" e "Pessoas" e botão "Encerrar todas" (com confirmação).
-  - Um card por sala (ordenado pela criação) com o código em fonte mono, "Aberta há X · última atividade há Y · rodada N · a/b votaram" (ou "cartas reveladas"), chips com os nomes (👑 no Host) e os botões "Entrar" (abre `?sala=CÓDIGO` em nova aba) e "Encerrar" (vira "Encerrando...").
+  - Um card por sala (ordenado pela criação) com o código em fonte mono (e o nome da sala ao lado, se houver), "Aberta há X · última atividade há Y · rodada N · a/b votaram" (ou "cartas reveladas"), chips com os nomes (👑 no Host) e os botões "Entrar" (abre `?sala=CÓDIGO` em nova aba) e "Encerrar" (vira "Encerrando...").
   - Estados: "Validando link...", "Procurando salas...", "Nenhuma sala aberta agora." e erro de link inválido.
   - Rodapé: "Os dados das salas chegam criptografados e só este link consegue lê-los. Não compartilhe esta URL."
   - Tempos atualizados a cada 15 s.
@@ -105,7 +131,7 @@ O GitHub Pages é estático, então não dá para gravar `.txt` nem banco no pr�
   - `newRoomId()`: `crypto.randomUUID()` com fallback via `getRandomValues` (fora de https).
   - `recordRound({ roomId, round, participants })`: filtra votos que estão no `DECK`, ignora rodada sem votos, `POST /rest/v1/rounds` com `Prefer: return=minimal` e `keepalive`; erros são ignorados (o jogo nunca depende disso).
   - `fetchStats()`: `POST /rest/v1/rpc/get_stats`.
-- **Privacidade:** nunca gravar nomes nem o código da sala (como `get_stats` é público, o código permitiria entrar em salas abertas). Cada sala ganha um `roomId` UUID em `roomInfoRef` ao ser criada.
+- **Privacidade:** nunca gravar nomes, nome da sala, capacidade nem o código da sala (como `get_stats` é público, o código permitiria entrar em salas abertas). Cada sala ganha um `roomId` UUID em `roomInfoRef` ao ser criada.
 - **Gravação:** no `reveal()` do Host (que agora ignora se já estiver revelado), depois do `broadcast()`, uma linha por rodada revelada com todos os participantes (Host incluso).
 - **Abstenção** = não votou + `?` + `☕` (gravados separados: `no_vote`, e contagem de `?`/`☕` em `votes`). Taxa = abstenções ÷ `seats` (soma das pessoas presentes em cada rodada revelada).
 - **Painel do admin:** abas "Salas abertas" / "Estatísticas" (`AdminStats.jsx`), visíveis depois de validar o link. A aba mostra: números grandes "Salas", "Rodadas reveladas", "Média geral", "Abstenções (N%)" e botão "↻ Atualizar"; card com "Mais votada" / "Menos votada" (só numéricas; empates juntos; sem "menos" se só um valor foi usado), detalhe "x não votaram · y “?” · z “☕”" e gráfico de barras com todas as cartas do baralho; tabela "Por sala (100 mais recentes)" com Aberta em, Rodadas, Média, Mais votada, Menos votada, Abstenções (com o detalhe no `title`). Estados: "Carregando estatísticas...", "Nenhuma rodada revelada ainda.", erro, e "Estatísticas desligadas" se faltarem as variáveis.
@@ -125,8 +151,8 @@ O GitHub Pages é estático, então não dá para gravar `.txt` nem banco no pr�
 # Interface (UI/UX)
 Referência visual: `image.png` (estilo do planningpokeronline.com). Tema escuro azul-marinho, destaque em azul claro.
 - **Cores:** fundo `#030617` (também no `<body>`), mesa `bg-slate-800/80`, destaque `blue-400` (hover `blue-300`), textos brancos/`slate`.
-- **Lobby:** centralizado (máx. `max-w-md`), emoji 🃏, título "Planning Poker", subtítulo "Peer-to-peer e sem cadastro. Tudo some quando a sala fecha; só ficam estatísticas anônimas das cartas.". Card com: campo "Seu nome" (obrigatório, máx. 30), botão "Criar Nova Sala", separador "ou", campo "Código da sala" + botão "Entrar". Se a URL tiver `?sala=CÓDIGO`, o campo de código já vem preenchido. Spinner "Conectando..." e caixa de erro em vermelho.
-- **Cabeçalho da sala:** "ID DA SALA" + código grande em fonte mono com espaçamento largo, selo "Host" para o Host; botões com contorno azul "Copiar código", "Convidar" (copia o link `origem + caminho + ?sala=CÓDIGO`; mostra "Copiado!" por 1,5 s) e "Sair" (vermelho; para o Host pede confirmação porque encerra a sala para todos).
+- **Lobby:** centralizado (máx. `max-w-md`), emoji 🃏, título "Planning Poker", subtítulo "Peer-to-peer e sem cadastro. Tudo some quando a sala fecha; só ficam estatísticas anônimas das cartas.". Card com: campo "Seu nome" (obrigatório, máx. 30), campo "Nome da sala (opcional, para quem cria)" (placeholder "Ex.: Sprint 42 · Time Pagamentos"), botão "Criar Nova Sala", separador "ou", campo "Código da sala" + botão "Entrar". Se a URL tiver `?sala=CÓDIGO`, o campo de código já vem preenchido. Spinner "Conectando..." e caixa de erro em vermelho.
+- **Cabeçalho da sala:** "ID DA SALA" + código grande em fonte mono com espaçamento largo, nome da sala ao lado (separado por uma linha vertical, truncado), selo "Host" para o Host; botões com contorno azul "Copiar código", "Convidar" (copia o link `origem + caminho + ?sala=CÓDIGO`; mostra "Copiado!" por 1,5 s) e "Sair" (vermelho; para o Host pede confirmação porque encerra a sala para todos).
 - **Mesa:** participantes divididos em duas fileiras, metade **acima** e metade **abaixo** de uma mesa central retangular arredondada (`max-w-sm`, `rounded-3xl`).
   - Carta de cada participante: pequena (40×68 px), com o nome em negrito embaixo (👑 antes do nome do Host; o próprio usuário em azul). Antes da revelação, mostra embaixo "Votando..." (cinza, pulsando) ou "Votou!" (azul).
   - Verso da carta: vazia com borda cinza se ainda não votou; **preenchida de azul com listras diagonais** se já votou.
@@ -138,6 +164,7 @@ Referência visual: `image.png` (estilo do planningpokeronline.com). Tema escuro
   - anel SVG de **Concordância** com a % (🎉 se houver consenso);
   - **Média** em número grande.
   - Abaixo, uma linha divisória e o botão "↻ Votar novamente" (só o Host); convidados veem "Aguardando o Host iniciar uma nova rodada...".
+- **Tabela de capacidade no canto:** em telas `xl` (≥ 1280 px) fica numa coluna de 320 px à direita, fixa (`sticky`) no topo, sem cobrir a mesa; em telas menores aparece abaixo do baralho/resultados (`max-w-md`).
 - Responsivo, com rodapé limitado a `max-w-4xl`.
 
 # Deploy no GitHub Pages
@@ -152,12 +179,15 @@ Referência visual: `image.png` (estilo do planningpokeronline.com). Tema escuro
 3. **`README.md`** voltado ao repositório: descrição, link do site, funcionalidades, como funciona (diagrama da estrela), stack, como rodar localmente (tabela de scripts), estrutura, resumo do deploy apontando para `docs/DEPLOY.md`, seção de privacidade e o aviso de que a sala acaba se o Host fechar a aba.
 4. **`docs/SUPABASE.md`**: tutorial para iniciantes: criar o projeto (região São Paulo), rodar `supabase/schema.sql` no SQL Editor, pegar Project URL e publishable/anon key (alerta para nunca usar a `service_role`), cadastrar as Variables no GitHub e rodar o deploy de novo, `.env.local`, como testar (Table Editor, aba Estatísticas, `curl` no `rpc/get_stats`), definições de média/abstenção, consultas úteis e avisos (projeto pausado após 1 semana parado; dados falsos possíveis com chave pública).
 5. **`docs/DEPLOY.md`**: tutorial detalhado para iniciantes: explicação do `base` (com tabela de exemplos, incluindo o caso `usuario.github.io` → `'/'`), criação do repositório público, comandos git, ativação do Pages com Actions, acompanhamento na aba Actions, explicação do workflow, alternativa com o pacote `gh-pages` (`"deploy": "vite build && gh-pages -d dist"`) e tabela de problemas comuns (página em branco/404, falha no `npm ci`, falha no deploy por permissão, sala não encontrada, redes corporativas bloqueando WebRTC/TURN).
-6. Sugestão de mensagem de commit (Conventional Commits, em português).
+6. **`docs/FUNCIONALIDADES.md`**: lista completa de funcionalidades para leigos, agrupada por área (Lobby, Sala, Votação, Capacidade do time, Fechamento das salas, Painel do admin, Estatísticas, Privacidade e segurança, Técnico), linkada no topo da seção "Funcionalidades" do README.
+7. Sugestão de mensagem de commit (Conventional Commits, em português).
 
 # Validação
 Fazer `npm run build` e testar de verdade com vários navegadores (ex.: Playwright com o Chrome instalado, em modo headless, contra `npm run preview`): 1 Host + 4 convidados entram pelo link `?sala=`, votam, conferem que o voto do Host não aparece para os convidados antes da revelação, o Host revela, tira screenshot comparando com `image.png` e inicia nova rodada.
 
 Testar também:
+- Nome da sala definido no Lobby aparece para Host e convidado; o Host renomeia e o convidado vê na hora.
+- Capacidade (padrão 15 dias, 1 pt/dia): convidado digita 50% na própria alocação tecla a tecla, sem Enter, e Host e convidado veem o cálculo mudar na hora (campo continua em foco); Esc volta ao valor anterior; não consegue editar a do Host; adiciona "Carla" (30%, não vota) e a tabela mostra a barra laranja com a legenda "Não está votando", 15 / 7,5 / 4,5 e "27 pts"; com 2 feriados aparece "13 dias úteis" e "23,4 pts"; com "arredondar para baixo" todos veem "22 pts" (13 + 6 + 3); o Host remove a Carla (sem feriados) e todos veem "22,5 pts"; votar e revelar continuam funcionando.
 - O Lobby mostra "Nenhuma sala aberta agora".
 - Com 3 Hosts (um deles com 2 convidados), o Lobby mostra "3 salas abertas · 5 pessoas" e o painel admin lista os 3 códigos.
 - Ao fechar a aba do primeiro Host (o contador), os números caem para 2/4 depois da eleição.

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer from 'peerjs'
-import { PEER_PREFIX, generateRoomCode, normalizeRoomCode } from '../lib/poker'
+import {
+  DEFAULT_SPRINT,
+  MAX_ROOM_NAME,
+  MAX_TEAM_EXTRAS,
+  PEER_PREFIX,
+  clampAllocation,
+  clampSprintConfig,
+  generateRoomCode,
+  normalizeRoomCode,
+} from '../lib/poker'
 import { startRoomReporter } from '../lib/registry'
 import { newRoomId, recordRound } from '../lib/stats'
 
@@ -20,7 +29,12 @@ import { newRoomId, recordRound } from '../lib/stats'
  *   NÃO é enviado aos convidados, só o fato de que a pessoa já votou.
  *
  * Mensagens convidado -> host:  { type: 'join', name } | { type: 'vote', value }
+ *   capacidade do time (qualquer um, a qualquer momento):
+ *     { type: 'allocation', target, value }   <- própria linha ou pessoa adicionada à mão
+ *     { type: 'add-member', name, allocation } | { type: 'remove-member', id }
+ *     { type: 'sprint-config', patch }         <- { days?, holidays?, pointsPerDay?, roundDown? }
  * Mensagens host -> convidado:  { type: 'state', state }
+ * O nome da sala só o Host altera (ação local, sem mensagem).
  */
 
 const CONNECT_TIMEOUT_MS = 12000
@@ -28,7 +42,7 @@ const CONNECT_TIMEOUT_MS = 12000
 const IDLE_LIMIT_MS = 60 * 60_000
 const IDLE_CHECK_MS = 60_000
 
-const initialGame = { participants: [], revealed: false, round: 1 }
+const initialGame = { participants: [], revealed: false, round: 1, roomName: '', sprint: DEFAULT_SPRINT, extras: [] }
 
 export function usePlanningPoker() {
   const [status, setStatus] = useState('idle') // idle | connecting | connected
@@ -98,13 +112,18 @@ export function usePlanningPoker() {
   const toPublicState = (state) => ({
     revealed: state.revealed,
     round: state.round,
+    roomName: state.roomName,
+    sprint: state.sprint,
     participants: [...state.participants.entries()].map(([id, p]) => ({
       id,
       name: p.name,
       isHost: p.isHost,
+      allocation: p.allocation,
       hasVoted: p.vote != null,
       vote: state.revealed ? p.vote : null,
     })),
+    // Pessoas do time que não votam (adicionadas pelo nome)
+    extras: state.extras.map(({ id, name, allocation }) => ({ id, name, allocation })),
   })
 
   const broadcast = useCallback(() => {
@@ -125,6 +144,7 @@ export function usePlanningPoker() {
     const { code, createdAt, lastActivity } = roomInfoRef.current
     return {
       code,
+      roomName: state?.roomName ?? '',
       createdAt,
       lastActivity,
       round: state?.round ?? 0,
@@ -134,6 +154,51 @@ export function usePlanningPoker() {
     }
   }, [])
 
+  // Ações da tabela de capacidade. Vale para mensagens dos convidados e para o próprio Host.
+  const applyTeamAction = useCallback(
+    (senderId, msg, fromHost) => {
+      const state = hostStateRef.current
+      if (!state) return
+      let changed = false
+
+      if (msg.type === 'allocation') {
+        const target = String(msg.target ?? '')
+        const value = clampAllocation(msg.value)
+        const participant = state.participants.get(target)
+        // Cada membro indica a própria alocação; o Host pode ajustar a de todos
+        if (participant && (fromHost || target === senderId)) {
+          participant.allocation = value
+          changed = true
+        } else {
+          const extra = state.extras.find((x) => x.id === target)
+          if (extra) {
+            extra.allocation = value
+            changed = true
+          }
+        }
+      } else if (msg.type === 'add-member') {
+        const name = String(msg.name ?? '').trim().slice(0, 30)
+        if (name && state.extras.length < MAX_TEAM_EXTRAS) {
+          state.extras.push({ id: `x${state.nextExtraId++}`, name, allocation: clampAllocation(msg.allocation ?? 100) })
+          changed = true
+        }
+      } else if (msg.type === 'remove-member') {
+        const before = state.extras.length
+        state.extras = state.extras.filter((x) => x.id !== msg.id)
+        changed = state.extras.length !== before
+      } else if (msg.type === 'sprint-config') {
+        state.sprint = clampSprintConfig(msg.patch, state.sprint)
+        changed = true
+      } else if (msg.type === 'room-name' && fromHost) {
+        state.roomName = String(msg.name ?? '').trim().slice(0, MAX_ROOM_NAME)
+        changed = true
+      }
+
+      if (changed) broadcast()
+    },
+    [broadcast],
+  )
+
   const handleGuestMessage = useCallback(
     (conn, msg) => {
       const state = hostStateRef.current
@@ -141,7 +206,7 @@ export function usePlanningPoker() {
 
       if (msg.type === 'join') {
         const name = String(msg.name || 'Anônimo').slice(0, 30)
-        state.participants.set(conn.peer, { name, vote: null, isHost: false })
+        state.participants.set(conn.peer, { name, vote: null, isHost: false, allocation: 100 })
         connectionsRef.current.set(conn.peer, conn)
         broadcast()
       } else if (msg.type === 'vote') {
@@ -149,13 +214,15 @@ export function usePlanningPoker() {
         if (!p || state.revealed) return // não aceita votos depois de revelar
         p.vote = msg.value == null ? null : String(msg.value).slice(0, 4)
         broadcast()
+      } else if (state.participants.has(conn.peer)) {
+        applyTeamAction(conn.peer, msg, false)
       }
     },
-    [broadcast],
+    [applyTeamAction, broadcast],
   )
 
   const createRoom = useCallback(
-    (name) => {
+    (name, roomName = '') => {
       cleanup()
       leavingRef.current = false
       setError('')
@@ -170,7 +237,11 @@ export function usePlanningPoker() {
           hostStateRef.current = {
             revealed: false,
             round: 1,
-            participants: new Map([[id, { name, vote: null, isHost: true }]]),
+            roomName: String(roomName).trim().slice(0, MAX_ROOM_NAME),
+            sprint: { ...DEFAULT_SPRINT },
+            participants: new Map([[id, { name, vote: null, isHost: true, allocation: 100 }]]),
+            extras: [],
+            nextExtraId: 1,
           }
           const now = Date.now()
           roomInfoRef.current = { code, roomId: newRoomId(), createdAt: now, lastActivity: now }
@@ -326,6 +397,23 @@ export function usePlanningPoker() {
 
   const leave = useCallback(() => resetToLobby(''), [resetToLobby])
 
+  // ---------- capacidade do time e nome da sala ----------
+
+  // O Host aplica direto; o convidado manda para o Host, que valida e retransmite
+  const teamAction = useCallback(
+    (msg) => {
+      if (isHost) applyTeamAction(myId, msg, true)
+      else hostConnRef.current?.send(msg)
+    },
+    [applyTeamAction, isHost, myId],
+  )
+
+  const setAllocation = useCallback((target, value) => teamAction({ type: 'allocation', target, value }), [teamAction])
+  const addMember = useCallback((name, allocation) => teamAction({ type: 'add-member', name, allocation }), [teamAction])
+  const removeMember = useCallback((id) => teamAction({ type: 'remove-member', id }), [teamAction])
+  const setSprintConfig = useCallback((patch) => teamAction({ type: 'sprint-config', patch }), [teamAction])
+  const setRoomName = useCallback((name) => isHost && teamAction({ type: 'room-name', name }), [isHost, teamAction])
+
   return {
     status,
     error,
@@ -340,6 +428,11 @@ export function usePlanningPoker() {
     reveal,
     newRound,
     leave,
+    setAllocation,
+    addMember,
+    removeMember,
+    setSprintConfig,
+    setRoomName,
   }
 }
 

@@ -7,8 +7,14 @@ Os participantes se conectam peer-to-peer via WebRTC; quando a sala fecha, tudo 
 
 ## Funcionalidades
 
+> Lista completa e detalhada em [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md).
+
 - **Criar sala** com um código curto (ex.: `HW83P2`) ou **entrar** pelo código / link de convite
+- **Nome da sala** opcional (definido por quem cria, renomeável pelo Host a qualquer momento)
 - Lista de participantes com status **Votando...** / **Votou!**
+- **Capacidade do time** numa tabela no canto: configuração da sprint por sala (**dias úteis**, **feriados**,
+  pontos por dia e arredondamento), **alocação (%)** de cada membro e pessoas do time adicionadas só pelo nome
+  (mesmo sem votar). Ex.: sprint de 15 dias = 15 pts por pessoa; quem está 30% alocado fica com 4,5 (ou 4)
 - Baralho Fibonacci: `0 ½ 1 2 3 5 8 13 21 34 55 89 ? ☕`
 - Votos **ocultos** até o Host revelar (inclusive na rede: os valores só são enviados após a revelação)
 - Animação de virar as cartas, valor mais votado, gráfico de distribuição, % de concordância e média
@@ -121,7 +127,8 @@ src/
 ├── App.jsx                     # Lobby/Room, ou AdminPanel se a URL tiver #admin=
 ├── components/
 │   ├── Lobby.jsx               # nome, criar sala, entrar em sala, contador de salas
-│   ├── Room.jsx                # mesa, cartas, resultados, controles do Host
+│   ├── Room.jsx                # mesa, cartas, resultados, controles do Host, nome da sala
+│   ├── TeamCapacity.jsx        # tabela de capacidade do time (configuração da sprint e alocação)
 │   ├── AdminPanel.jsx          # painel do link mágico (abas Salas abertas / Estatísticas)
 │   └── AdminStats.jsx          # aba de estatísticas (lê o Supabase)
 ├── hooks/
@@ -148,8 +155,16 @@ Todo push na `main` publica automaticamente no GitHub Pages via GitHub Actions
 
 ## Privacidade
 
-- Nomes, códigos de sala e votos identificáveis nunca são gravados em servidor, cookie ou `localStorage`.
+- Nomes, nome e código da sala, capacidade do time e votos identificáveis nunca são gravados em servidor,
+  cookie ou `localStorage`: ficam só na memória do Host e somem quando a sala fecha.
 - Com o Supabase ligado, ficam só estatísticas anônimas por rodada (cartas jogadas e quantos não votaram).
 - O servidor de sinalização do PeerJS vê apenas IDs de conexão, nunca nomes ou votos.
 - O contador de salas recebe em claro só números (salas e pessoas); os detalhes vão criptografados para o admin.
 - Redes corporativas muito restritas podem bloquear WebRTC (seria necessário um servidor TURN).
+
+## Licença
+
+[MIT](LICENSE): pode usar, copiar, modificar e distribuir, desde que mantenha o aviso de copyright.
+
+
+

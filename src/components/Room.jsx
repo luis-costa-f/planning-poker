@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
-import { DECK, computeStats } from '../lib/poker'
+import { useMemo, useRef, useState } from 'react'
+import { DECK, MAX_ROOM_NAME, computeStats } from '../lib/poker'
+import TeamCapacity from './TeamCapacity'
 
 export default function Room({ poker }) {
-  const { roomCode, isHost, myId, myVote, game, vote, reveal, newRound, leave } = poker
-  const { participants, revealed } = game
+  const { roomCode, isHost, myId, myVote, game, vote, reveal, newRound, leave, setRoomName } = poker
+  const { participants, revealed, roomName } = game
 
   const votedCount = participants.filter((p) => p.hasVoted).length
   const stats = useMemo(() => (revealed ? computeStats(participants) : null), [revealed, participants])
@@ -15,36 +16,47 @@ export default function Room({ poker }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <RoomHeader roomCode={roomCode} isHost={isHost} onLeave={leave} />
+      <RoomHeader roomCode={roomCode} roomName={roomName} isHost={isHost} onRename={setRoomName} onLeave={leave} />
 
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-10">
-        <SeatRow participants={top} revealed={revealed} myId={myId} />
+      <div className="flex flex-1 flex-col xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-10">
+            <SeatRow participants={top} revealed={revealed} myId={myId} />
 
-        <div className="flex h-30 w-full max-w-sm items-center justify-center rounded-3xl bg-slate-800/80 px-6 text-center">
-          <TableCenter
-            revealed={revealed}
-            stats={stats}
-            isHost={isHost}
-            votedCount={votedCount}
-            onReveal={reveal}
-          />
+            <div className="flex h-30 w-full max-w-sm items-center justify-center rounded-3xl bg-slate-800/80 px-6 text-center">
+              <TableCenter
+                revealed={revealed}
+                stats={stats}
+                isHost={isHost}
+                votedCount={votedCount}
+                onReveal={reveal}
+              />
+            </div>
+
+            <SeatRow participants={bottom} revealed={revealed} myId={myId} />
+          </main>
+
+          <footer className="mx-auto w-full max-w-4xl px-4 pb-6">
+            {revealed && stats ? (
+              <Results stats={stats} isHost={isHost} onNewRound={newRound} />
+            ) : (
+              <Deck myVote={myVote} onVote={vote} />
+            )}
+          </footer>
         </div>
 
-        <SeatRow participants={bottom} revealed={revealed} myId={myId} />
-      </main>
-
-      <footer className="mx-auto w-full max-w-4xl px-4 pb-6">
-        {revealed && stats ? (
-          <Results stats={stats} isHost={isHost} onNewRound={newRound} />
-        ) : (
-          <Deck myVote={myVote} onVote={vote} />
-        )}
-      </footer>
+        {/* Tabela de capacidade: no canto direito em telas largas, abaixo do baralho no celular */}
+        <aside className="mx-auto w-full max-w-md px-4 pb-6 xl:mx-0 xl:w-80 xl:max-w-none xl:shrink-0 xl:pt-4 xl:pr-4 xl:pl-0">
+          <div className="xl:sticky xl:top-4">
+            <TeamCapacity poker={poker} />
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }
 
-function RoomHeader({ roomCode, isHost, onLeave }) {
+function RoomHeader({ roomCode, roomName, isHost, onRename, onLeave }) {
   const [copied, setCopied] = useState('')
 
   const copy = async (text, what) => {
@@ -67,6 +79,7 @@ function RoomHeader({ roomCode, isHost, onLeave }) {
           <p className="text-[11px] uppercase tracking-wider text-slate-400">ID da Sala</p>
           <p className="font-mono text-xl font-bold tracking-[0.2em] text-white">{roomCode}</p>
         </div>
+        <RoomName name={roomName} isHost={isHost} onRename={onRename} />
         {isHost && (
           <span className="rounded-full bg-blue-400/15 px-2 py-0.5 text-xs font-semibold text-blue-300">Host</span>
         )}
@@ -88,6 +101,64 @@ function RoomHeader({ roomCode, isHost, onLeave }) {
         </HeaderButton>
       </div>
     </header>
+  )
+}
+
+// Nome da sala: todos veem; só o Host edita (clique no nome ou no lápis)
+function RoomName({ name, isHost, onRename }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const cancelRef = useRef(false)
+
+  if (editing) {
+    const save = () => {
+      setEditing(false)
+      if (cancelRef.current) cancelRef.current = false
+      else if (draft.trim() !== name) onRename(draft.trim())
+    }
+    return (
+      <input
+        autoFocus
+        value={draft}
+        maxLength={MAX_ROOM_NAME}
+        placeholder="Nome da sala"
+        aria-label="Nome da sala"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            cancelRef.current = true
+            e.currentTarget.blur()
+          }
+        }}
+        className="w-56 rounded-md border border-blue-400/40 bg-slate-900/80 px-2 py-1 text-sm text-white outline-none focus:border-blue-400"
+      />
+    )
+  }
+
+  if (!isHost) {
+    return name ? (
+      <span className="max-w-[16rem] truncate border-l border-white/10 pl-3 text-lg font-semibold text-white" title={name}>
+        {name}
+      </span>
+    ) : null
+  }
+
+  return (
+    <button
+      onClick={() => {
+        setDraft(name)
+        setEditing(true)
+      }}
+      title="Renomear sala"
+      className="flex max-w-[16rem] items-center gap-1.5 border-l border-white/10 pl-3 text-lg font-semibold"
+    >
+      <span className={`truncate ${name ? 'text-white' : 'text-sm font-normal text-slate-500'}`}>
+        {name || 'Dar nome à sala'}
+      </span>
+      <span className="text-sm text-slate-400">✎</span>
+    </button>
   )
 }
 

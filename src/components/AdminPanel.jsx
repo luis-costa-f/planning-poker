@@ -131,7 +131,10 @@ export default function AdminPanel({ secret }) {
                   <li key={room.key} className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="font-mono text-xl font-bold tracking-[0.2em] text-white">{room.code}</p>
+                        <p className="flex flex-wrap items-baseline gap-x-3">
+                          <span className="font-mono text-xl font-bold tracking-[0.2em] text-white">{room.code}</span>
+                          {room.roomName && <span className="font-semibold text-slate-200">{room.roomName}</span>}
+                        </p>
                         <p className="mt-1 text-xs text-slate-400">
                           Aberta há {ago(now - room.createdAt)} · última atividade há {ago(now - room.lastActivity)} · rodada {room.round} ·{' '}
                           {room.revealed ? 'cartas reveladas' : `${room.voted}/${room.names.length} votaram`}
